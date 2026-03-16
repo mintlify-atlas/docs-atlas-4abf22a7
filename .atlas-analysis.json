@@ -1,0 +1,96 @@
+{
+  "projectType": "saas",
+  "projectName": "NOUS ACADEMY",
+  "projectDescription": "A Java desktop application for managing a private academy's users, students, teachers, classes, groups, memberships, and contracts.",
+  "theme": "linden",
+  "primaryColor": "#1A3A5C",
+  "lightColor": "#2B6CB0",
+  "darkColor": "#0F2540",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": ["introduction", "quickstart"]
+          },
+          {
+            "group": "User Roles",
+            "pages": ["roles/administrator", "roles/teacher", "roles/student"]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/user-management",
+              "features/student-management",
+              "features/teacher-management",
+              "features/class-management",
+              "features/group-management",
+              "features/memberships",
+              "features/contracts"
+            ]
+          },
+          {
+            "group": "Data & Persistence",
+            "pages": ["data/file-persistence", "data/data-model"]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "Controllers",
+            "pages": ["reference/academia-controller"]
+          },
+          {
+            "group": "Models",
+            "pages": [
+              "reference/models/clase",
+              "reference/models/reserva",
+              "reference/models/grupo"
+            ]
+          },
+          {
+            "group": "Accounting",
+            "pages": [
+              "reference/accounting/membresia",
+              "reference/accounting/contrato"
+            ]
+          },
+          {
+            "group": "Exceptions",
+            "pages": ["reference/exceptions"]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Multi-role access: Administrator, Teacher (Docente), and Student (Estudiante) login",
+    "Student membership management with BASIC, INTENSIVE, and PREMIUM plans",
+    "Teacher contract management with salary and hours tracking",
+    "Group (Grupo) management for organizing students and teachers",
+    "Class reservation system supporting group classes and personalized private classes",
+    "Class lifecycle management: create, start, finish, and rate classes",
+    "File-based data persistence using Java serialization",
+    "Swing-based graphical user interface with role-specific panels"
+  ],
+  "publicApiSurface": [
+    "AcademiaController.crearEstudiante()",
+    "AcademiaController.crearDocente()",
+    "AcademiaController.crearUsuario()",
+    "AcademiaController.crearGrupo()",
+    "AcademiaController.crearUnaReservaGrupal()",
+    "AcademiaController.crearUnaReservaPersonalizada()",
+    "AcademiaController.asignarMembresiaDefinida()",
+    "AcademiaController.asignarMembresiaPersonalizada()",
+    "AcademiaController.asignarContrato()",
+    "AcademiaController.inciarReserva()",
+    "AcademiaController.finalizarReserva()",
+    "AcademiaController.calificarReserva()",
+    "AcademiaController.entrarGrupo()",
+    "AcademiaController.reservarClase()"
+  ]
+}
