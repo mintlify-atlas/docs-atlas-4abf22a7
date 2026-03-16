@@ -1,0 +1,74 @@
+---
+title: "NOUS ACADEMY"
+description: "Software de gestión integral para academias privadas — administre usuarios, clases, grupos, membresías y contratos desde una sola aplicación."
+---
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Ponga en marcha NOUS ACADEMY en minutos y comience a gestionar su academia.
+  </Card>
+  <Card title="Roles de usuario" icon="users" href="/roles/administrator">
+    Conozca los tres roles: Administrador, Docente y Estudiante.
+  </Card>
+  <Card title="Características principales" icon="star" href="/features/user-management">
+    Explore todas las funcionalidades de gestión de la academia.
+  </Card>
+  <Card title="Referencia técnica" icon="code" href="/reference/academia-controller">
+    Documentación completa de clases, métodos y excepciones.
+  </Card>
+</CardGroup>
+
+## ¿Qué es NOUS ACADEMY?
+
+NOUS ACADEMY es una aplicación de escritorio Java diseñada para que academias privadas gestionen de forma centralizada todos sus procesos operativos. Desde la matrícula de estudiantes hasta la contratación de docentes, pasando por la programación de clases y el seguimiento financiero, NOUS ACADEMY cubre el ciclo completo de administración académica.
+
+## Arquitectura del sistema
+
+El software sigue un patrón MVC (Modelo-Vista-Controlador) con tres capas bien definidas:
+
+- **Modelo** — Entidades de negocio: `Clase`, `Reserva`, `Grupo`, `Membresia`, `Contrato`
+- **Controlador** — `AcademiaController`: punto único de acceso a toda la lógica de negocio
+- **Vista** — Interfaz gráfica Swing con paneles específicos por rol de usuario
+
+```
+src/com/nousacademy/
+├── boot/           # Carga inicial de datos persistidos
+├── contabilidad/   # Membresías y contratos
+├── controller/     # AcademiaController (lógica central)
+├── excepciones/    # Excepciones de negocio tipadas
+├── interfacegrafica/ # Paneles Swing por rol
+├── modelo/         # Clases, reservas, grupos
+├── pruebas/        # Pruebas de integración
+└── usuarios/       # Usuarios, docentes, estudiantes
+```
+
+## Roles del sistema
+
+<CardGroup cols={3}>
+  <Card title="Administrador" icon="shield-halved" href="/roles/administrator">
+    Gestiona usuarios, docentes, estudiantes, grupos, reservas, membresías, contratos y capital.
+  </Card>
+  <Card title="Docente" icon="chalkboard-teacher" href="/roles/teacher">
+    Inicia y finaliza clases asignadas, consulta su historial y estado de contrato.
+  </Card>
+  <Card title="Estudiante" icon="graduation-cap" href="/roles/student">
+    Reserva clases, se une a grupos, califica sesiones y gestiona su membresía.
+  </Card>
+</CardGroup>
+
+## Persistencia de datos
+
+NOUS ACADEMY utiliza serialización de objetos Java para mantener el estado entre sesiones. Cada entidad se persiste en un archivo dedicado dentro del directorio `datos/`:
+
+| Extensión | Entidad      |
+|-----------|-------------|
+| `.usr`    | Administrador |
+| `.est`    | Estudiante   |
+| `.doce`   | Docente      |
+| `.res`    | Reserva      |
+| `.grp`    | Grupo        |
+| `.txt`    | Datos de la academia |
+
+<Note>
+  Al iniciar la aplicación, la clase `BootClass` deserializa automáticamente todos los archivos del directorio `datos/` y reconstruye el estado completo del sistema.
+</Note>

@@ -1,0 +1,178 @@
+---
+title: Contracts
+description: How teacher contracts are created, assigned, financed, and managed in NOUS ACADEMY.
+---
+
+Contracts formalize the employment relationship between the academy and a teacher (`Docente`). Assigning a contract commits academy capital for the full contract term, so a pre-flight capital check is enforced before creation.
+
+## Contract fields
+
+```java
+public class Contrato implements ComportamientoContable, Serializable {
+    private String codigo;                       // e.g. CON001
+    private LocalDate fechaInicio;
+    private LocalDate fechaFinalizacion;         // fechaInicio.plusMonths(meses)
+    private double salarioBase;
+    private double horasMinimas;
+    private double costoHoraPrivadaAdicional;
+    private EstadoContrato estadoContato;        // ACTIVO on creation
+    private int meses;
+}
+```
+
+| Field | Description |
+|---|---|
+| `salarioBase` | Monthly salary paid to the teacher |
+| `horasMinimas` | Minimum contracted hours per month |
+| `costoHoraPrivadaAdicional` | Rate charged per additional private class hour beyond `horasMinimas` |
+| `meses` | Contract duration in months |
+| `fechaFinalizacion` | Computed as `fechaInicio.plusMonths(meses)` |
+
+## Contract codes
+
+Codes are auto-generated using a zero-padded 3-digit serial counter with the `CON` prefix:
+
+```java
+@Override
+public String generarCodigo(String sufijo) {
+    serial++;
+    return sufijo + String.format("%03d", serial);
+}
+```
+
+Examples: `CON001`, `CON002`, `CON003`.
+
+## Contract states
+
+Defined in `EstadoContrato`:
+
+```java
+public enum EstadoContrato {
+    ACTIVO,
+    SUSPENDIDO,
+    FINALIZADO
+}
+```
+
+| State | Meaning |
+|---|---|
+| `ACTIVO` | Set automatically when the contract is created |
+| `SUSPENDIDO` | Temporarily suspended by an administrator |
+| `FINALIZADO` | Contract has ended; set automatically when a new contract replaces the current one, or manually by an administrator |
+
+<Note>
+When an administrator sets a contract to `FINALIZADO`, the `Docente` object moves the current contract to `historialContratos` and sets `contrato` to `null`. The teacher has no active contract until a new one is assigned.
+</Note>
+
+## Assigning a contract
+
+```java
+public void asignarContrato(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    LocalDate fechaInicio,
+    double salarioBase,
+    double horasMinimas,
+    double costoHoraA,
+    int meses
+) throws ElementoNoExistente, FechaInvalida, ValoresNegativos,
+         EstadoContratoInvalido, DineroInsuficienteParaContratar, IOException
+```
+
+**Execution flow:**
+
+1. **Capital pre-check** — `capital >= salarioBase * meses` must hold. If not, `DineroInsuficienteParaContratar` is thrown and nothing is modified.
+2. The teacher is looked up by document.
+3. If the teacher already has a contract, it is set to `FINALIZADO`, its `fechaFinalizacion` is set to today, and it is archived in `historialContratos`.
+4. A new `Contrato` is constructed.
+5. `capital += contrato.impactoComercial()` is applied (the value is negative — see below).
+6. The teacher's `.doce` file and `NousAcademy.txt` are rewritten.
+
+```java
+// Capital pre-check in AcademiaController.java
+if (this.capital < salarioBase * meses) {
+    throw new DineroInsuficienteParaContratar();
+}
+// ...
+this.capital += d.getContrato().impactoComercial();
+```
+
+## Capital impact
+
+Contracts **reduce** academy capital by the total payroll obligation for the contract term:
+
+```java
+// In Contrato.java
+@Override
+public double impactoComercial() {
+    return -this.salarioBase * this.meses; // negative — reduces capital
+}
+```
+
+For a 3-month contract with a base salary of 2,000,000: `impactoComercial()` returns `-6,000,000`.
+
+<Warning>
+The full salary commitment is deducted from capital at the moment the contract is assigned, not month by month.
+</Warning>
+
+## Updating contract state
+
+```java
+public void actualizarEstadoContratoDocente(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    EstadoContrato estdo
+) throws EstadoContratoInvalido, ElementosVacios, ElementoNoExistente, IOException
+```
+
+The controller delegates to `Docente.actualizarEstadoContrato()`. Setting state to `FINALIZADO` nullifies `contrato` on the teacher object. After the update, the teacher's `.doce` file is rewritten.
+
+## Capital management
+
+Academy capital can be adjusted independently of memberships and contracts:
+
+<CardGroup cols={2}>
+  <Card title="inyectarCapital" icon="plus">
+    Adds funds to the academy's capital balance.
+
+    ```java
+    public void inyectarCapital(float capital)
+        throws ValoresNegativos, IOException
+    ```
+
+    - `capital` must be `>= 0`; otherwise `ValoresNegativos` is thrown.
+    - `NousAcademy.txt` is rewritten after every injection.
+  </Card>
+  <Card title="retirarCapital" icon="minus">
+    Withdraws funds from the academy's capital balance.
+
+    ```java
+    public void retirarCapital(float capital)
+        throws ValoresNegativos, IOException, ImposibleRetirar
+    ```
+
+    - `capital` must be `>= 0`; otherwise `ValoresNegativos` is thrown.
+    - If `this.capital < capital`, `ImposibleRetirar` is thrown.
+    - `NousAcademy.txt` is rewritten after every withdrawal.
+  </Card>
+</CardGroup>
+
+## Validation rules
+
+<Accordion title="View all validation rules">
+
+| Parameter | Rule | Exception thrown |
+|---|---|---|
+| `fechaInicio` | Must not be `null` and must not be before today | `FechaInvalida` |
+| `salarioBase` | Must be `> 0` | `ValoresNegativos` |
+| `horasMinimas` | Must be `>= 0` | `ValoresNegativos` |
+| `costoHoraPrivadaAdicional` | Must be `>= 0` | `ValoresNegativos` |
+| `meses` | Must be `> 0` | `ValoresNegativos` |
+| `capital` (pre-check) | `capital >= salarioBase * meses` | `DineroInsuficienteParaContratar` |
+| `nuevoEstado` | Must not be `null` | `EstadoContratoInvalido` |
+
+</Accordion>
+
+## Serialization
+
+`Contrato` implements `Serializable` with `serialVersionUID = 1L`. It is embedded inside the `Docente` object and persisted together with it in the `.doce` file — there is no separate contract file.

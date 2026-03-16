@@ -1,0 +1,272 @@
+---
+title: Student Management
+description: Create, update, delete, search, and list students in NOUS ACADEMY, including group membership and membership tracking.
+---
+
+Students (`Estudiante`) are the learners registered in NOUS ACADEMY. They extend `Usuario` and add membership tracking, a class history, and group enrollment. Each student is persisted as a `.est` file in `datos/`.
+
+## Overview
+
+<CardGroup cols={3}>
+  <Card title="Create" icon="user-plus">
+    Register a new student with identity and credential validation.
+  </Card>
+  <Card title="Update" icon="pen-to-square">
+    Modify any non-empty field of an existing student record.
+  </Card>
+  <Card title="Delete" icon="trash">
+    Remove a student and delete the corresponding `.est` file.
+  </Card>
+  <Card title="List" icon="list">
+    Retrieve all registered students.
+  </Card>
+  <Card title="Search" icon="magnifying-glass">
+    Find a single student by document type and number.
+  </Card>
+  <Card title="Groups" icon="users">
+    Students can belong to up to 4 groups simultaneously.
+  </Card>
+</CardGroup>
+
+---
+
+## Document Types
+
+All user types share the same `TipoDocumento` enum:
+
+| Enum constant | Description |
+|---|---|
+| `CC` | Cédula de Ciudadanía |
+| `TARJETA_IDENTIDAD` | Tarjeta de Identidad |
+| `CE` | Cédula de Extranjería |
+| `PASAPORTE` | Pasaporte |
+| `NIT` | Número de Identificación Tributaria |
+
+---
+
+## Creating a Student
+
+`AcademiaController.crearEstudiante` registers a new student.
+
+```java
+public void crearEstudiante(
+    String nombre,
+    String apellidos,
+    String telefono,
+    String correo,
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    String usuario,
+    String contrasena
+) throws ElementosVacios, CorreoNoValido, NombreNoValido,
+         IOException, ValoresNegativos, LongitudNoValida, Duplicados
+```
+
+<Steps>
+  <Step title="Duplicate check">
+    The controller scans the `estudiantes` array. If any record matches the same `tipoDocumento` + `numeroDocumento` pair **or** the same `usuario` string, `Duplicados` is thrown immediately.
+  </Step>
+  <Step title="Object construction and validation">
+    `new Estudiante(...)` is instantiated, which calls the `Usuario` superclass constructor. All field validation runs at this point (see [Validation Rules](#validation-rules)).
+  </Step>
+  <Step title="Array append">
+    The `estudiantes` array is extended by one using `Arrays.copyOf` and the new instance is placed at the last index.
+  </Step>
+  <Step title="File persistence">
+    The student is serialized to `datos/<TipoDocumento prefix><numeroDocumento>.est`.
+  </Step>
+</Steps>
+
+### Parameters
+
+<ParamField path="nombre" type="String" required>
+  First name. Must be at least 2 characters.
+</ParamField>
+
+<ParamField path="apellidos" type="String" required>
+  Last name(s). Must be at least 2 characters.
+</ParamField>
+
+<ParamField path="telefono" type="String" required>
+  Phone number as a string. Must be ≥ 5 characters and parse to a non-negative number.
+</ParamField>
+
+<ParamField path="correo" type="String" required>
+  Institutional email. Must contain `@` and end with `nousacademy.co`.
+</ParamField>
+
+<ParamField path="tipoDocumento" type="TipoDocumento" required>
+  One of the five `TipoDocumento` enum values.
+</ParamField>
+
+<ParamField path="numeroDocumento" type="String" required>
+  Document number. Must be ≥ 5 characters and parse to a non-negative number.
+</ParamField>
+
+<ParamField path="usuario" type="String" required>
+  Login username. Must be non-empty and unique across all students.
+</ParamField>
+
+<ParamField path="contrasena" type="String" required>
+  Account password. Must be non-empty.
+</ParamField>
+
+---
+
+## Validation Rules
+
+Validation is enforced inside the `Usuario` constructor (inherited by `Estudiante`). The controller adds a duplicate check before construction.
+
+| Field | Rule | Exception thrown |
+|---|---|---|
+| Any field | Must not be empty string | `ElementosVacios` |
+| `nombre` | Length ≥ 2 characters | `NombreNoValido` |
+| `apellidos` | Length ≥ 2 characters | `NombreNoValido` |
+| `correo` | Must contain `@` and end with `nousacademy.co` | `CorreoNoValido` |
+| `telefono` | Must parse as a non-negative number | `ValoresNegativos` |
+| `telefono` | Length ≥ 5 characters | `LongitudNoValida` |
+| `numeroDocumento` | Must parse as a non-negative number | `ValoresNegativos` |
+| `numeroDocumento` | Length ≥ 5 characters | `LongitudNoValida` |
+| `tipoDocumento` + `numeroDocumento` | Combination must be unique among students | `Duplicados` |
+| `usuario` | Must be unique among students | `Duplicados` |
+
+---
+
+## Updating a Student
+
+`AcademiaController.actualizarEstudiante` patches an existing student. Only fields passed as non-empty strings (or non-null for `tipoDocumento`) are written.
+
+```java
+public void actualizarEstudiante(
+    TipoDocumento originalTD,
+    String originalND,
+    String nombre,
+    String apellidos,
+    String telefono,
+    String correo,
+    TipoDocumento tipoDocumento,
+    String numeroDocumento
+) throws CorreoNoValido, NombreNoValido, ElementoNoExistente, IOException, ValoresNegativos
+```
+
+<Steps>
+  <Step title="Locate the record">
+    `buscarUnEstudiante(originalTD, originalND)` finds the student by **original** document type and number. Throws `ElementoNoExistente` if not found.
+  </Step>
+  <Step title="Apply non-empty fields">
+    Each parameter is checked: if it is not an empty string (or not `null` for `tipoDocumento`), the corresponding setter is invoked. Individual setter validation still applies.
+  </Step>
+  <Step title="Re-persist">
+    The old `.est` file at `datos/<originalTD prefix><originalND>.est` is deleted. The student is serialized to a new file derived from the (potentially updated) document identity.
+  </Step>
+</Steps>
+
+<Warning>
+  Pass `""` for any field you do not want to change. Passing `null` for `tipoDocumento` leaves it unchanged. Passing `null` for any `String` parameter will throw a `NullPointerException`.
+</Warning>
+
+---
+
+## Deleting a Student
+
+```java
+public void eliminarEstudiante(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento
+) throws ElementoNoExistente
+```
+
+Locates the student by `tipoDocumento` + `numeroDocumento`, deletes the `.est` file from `datos/`, swaps the entry with the last element, and shrinks the array. Throws `ElementoNoExistente` if no match is found.
+
+---
+
+## Listing All Students
+
+```java
+public Estudiante[] leerEstudiantes()
+```
+
+Returns a **clone** of the internal `estudiantes` array. Mutations to the returned array do not affect the controller's internal state.
+
+---
+
+## Searching for a Student
+
+```java
+public Estudiante buscarUnEstudiante(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento
+) throws ElementoNoExistente
+```
+
+Performs a linear scan of the `estudiantes` array and returns the first `Estudiante` whose `tipoDocumento` matches exactly and whose `numeroDocumento` equals the given string. Throws `ElementoNoExistente` if no match is found.
+
+<Note>
+  This method is also used internally by `actualizarEstudiante`, membership assignment, class reservations, and other workflows that require resolving a student reference before acting on it.
+</Note>
+
+---
+
+## Student-Specific State
+
+When a student is created, the following fields are initialized to their default values by the `Estudiante` constructor:
+
+| Field | Initial value | Description |
+|---|---|---|
+| `membresia` | `null` | Active membership; assigned later by an administrator |
+| `historialMembresias` | Empty array | Previous memberships that were cancelled or superseded |
+| `historialClases` | Empty array | Classes the student has reserved or attended |
+| `clasesPrivadasRestantes` | `0` | Remaining private class credits from the active membership |
+| `grupos` | Empty array | Groups the student is currently enrolled in |
+| `cantidadDeGrupos` | `0` | Count of current group enrollments |
+| `reservado` | `false` | Whether the student currently holds an active class reservation |
+| `tipoUsuario` | `ESTUDIANTE` | Role assigned automatically |
+
+### Group Membership
+
+Students can belong to a maximum of **4 groups** at the same time. Attempting to add a fifth group throws `CantidadGruposExcedida`.
+
+<Tabs>
+  <Tab title="Join a group">
+    ```java
+    // Called by AcademiaController.entrarGrupo(Estudiante, String codigo)
+    public void addGrupo(Grupo grupo) throws CantidadGruposExcedida
+    ```
+    Appends the group to the student's `grupos` array and updates `cantidadDeGrupos`.
+  </Tab>
+  <Tab title="Leave a group">
+    ```java
+    // Called by AcademiaController.salirseGrupo(Estudiante, String codigo)
+    public void eliminarGrupo(Grupo grupo) throws GrupoNoEncontrado
+    ```
+    Removes the group from the student's `grupos` array using a swap-with-last-then-shrink strategy.
+  </Tab>
+</Tabs>
+
+### Membership Tracking
+
+A student's membership lifecycle is managed by the administrator. When a new membership is assigned while one already exists, the current membership is cancelled and moved to `historialMembresias` before the new one is set.
+
+The `clasesPrivadasRestantes` counter is reset to the new membership's private class allowance each time a membership is assigned.
+
+---
+
+## File Persistence
+
+| Detail | Value |
+|---|---|
+| Directory | `datos/` |
+| Extension | `.est` |
+| Filename pattern | `<first 2 chars of TipoDocumento name><numeroDocumento>.est` |
+| Serialization | `ObjectOutputStream` wrapping a `FileOutputStream` |
+| `serialVersionUID` | `3344556677L` |
+
+**Examples:**
+
+| TipoDocumento | numeroDocumento | Filename |
+|---|---|---|
+| `CC` | `12345678` | `CC12345678.est` |
+| `TARJETA_IDENTIDAD` | `99001122` | `TA99001122.est` |
+| `CE` | `55443300` | `CE55443300.est` |
+| `PASAPORTE` | `AB123456` | `PAAB123456.est` |
+| `NIT` | `8001234560` | `NI8001234560.est` |

@@ -1,0 +1,215 @@
+---
+title: User Management
+description: Create, update, delete, and list administrator users in NOUS ACADEMY.
+---
+
+Administrator users are the privileged accounts that operate the NOUS ACADEMY system. They are distinct from students and teachers and are stored as serialized `.usr` files under the `datos/` directory.
+
+## Overview
+
+<CardGroup cols={2}>
+  <Card title="Create" icon="user-plus">
+    Register a new administrator with full identity and credential validation.
+  </Card>
+  <Card title="Update" icon="pen-to-square">
+    Modify any non-empty field of an existing administrator record.
+  </Card>
+  <Card title="Delete" icon="trash">
+    Remove an administrator and delete the corresponding `.usr` file.
+  </Card>
+  <Card title="List" icon="list">
+    Retrieve a snapshot of all registered administrator accounts.
+  </Card>
+</CardGroup>
+
+---
+
+## Creating an Administrator
+
+`AcademiaController.crearUsuario` registers a new administrator user.
+
+```java
+public void crearUsuario(
+    String nombre,
+    String apellidos,
+    String telefono,
+    String correo,
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    String usuario,
+    String contrasena
+) throws ElementosVacios, CorreoNoValido, NombreNoValido,
+         IOException, ValoresNegativos, LongitudNoValida, Duplicados
+```
+
+<Steps>
+  <Step title="Duplicate check">
+    The controller scans the current `usuarios` array. If any existing record matches **both** the same `tipoDocumento` + `numeroDocumento` pair **or** the same `usuario` string, a `Duplicados` exception is thrown before any object is created.
+  </Step>
+  <Step title="Object construction and validation">
+    A `new Usuario(...)` is instantiated. The `Usuario` constructor applies all field-level validation rules (see table below). Any violation throws the corresponding checked exception.
+  </Step>
+  <Step title="Array append">
+    The internal `usuarios` array is extended by one with `Arrays.copyOf` and the new instance is placed at the last index.
+  </Step>
+  <Step title="File persistence">
+    The user is serialized to `datos/<TipoDocumento prefix><numeroDocumento>.usr` via `copiarFicheroUsuario`. The file prefix is the first two characters of the `TipoDocumento` enum name (e.g., `CC12345678.usr`, `TA99001122.usr`).
+  </Step>
+</Steps>
+
+### Parameters
+
+<ParamField path="nombre" type="String" required>
+  First name of the administrator. Must be at least 2 characters.
+</ParamField>
+
+<ParamField path="apellidos" type="String" required>
+  Last name(s) of the administrator. Must be at least 2 characters.
+</ParamField>
+
+<ParamField path="telefono" type="String" required>
+  Phone number as a string. Must be ≥ 5 characters and parse to a non-negative number.
+</ParamField>
+
+<ParamField path="correo" type="String" required>
+  Institutional email address. Must contain `@` and end with `nousacademy.co`.
+</ParamField>
+
+<ParamField path="tipoDocumento" type="TipoDocumento" required>
+  Document type enum value. See [Document Types](#document-types).
+</ParamField>
+
+<ParamField path="numeroDocumento" type="String" required>
+  Document number. Must be ≥ 5 characters and parse to a non-negative number.
+</ParamField>
+
+<ParamField path="usuario" type="String" required>
+  Login username. Must be non-empty and unique across all administrators.
+</ParamField>
+
+<ParamField path="contrasena" type="String" required>
+  Password for the account. Must be non-empty.
+</ParamField>
+
+---
+
+## Validation Rules
+
+All validation is enforced inside the `Usuario` constructor (`Usuario.java:32-49`). The controller additionally checks for duplicates before invoking the constructor.
+
+| Field | Rule | Exception thrown |
+|---|---|---|
+| Any field | Must not be empty string | `ElementosVacios` |
+| `nombre` | Length ≥ 2 characters | `NombreNoValido` |
+| `apellidos` | Length ≥ 2 characters | `NombreNoValido` |
+| `correo` | Must contain `@` and end with `nousacademy.co` | `CorreoNoValido` |
+| `telefono` | Must parse as a non-negative number | `ValoresNegativos` |
+| `telefono` | Length ≥ 5 characters | `LongitudNoValida` |
+| `numeroDocumento` | Must parse as a non-negative number | `ValoresNegativos` |
+| `numeroDocumento` | Length ≥ 5 characters | `LongitudNoValida` |
+| `tipoDocumento` + `numeroDocumento` | Combination must be unique | `Duplicados` |
+| `usuario` | Must be unique across all administrators | `Duplicados` |
+
+<Note>
+  Email validation at creation time requires the domain to be exactly `nousacademy.co` (the `CorreoNoValido` message reads: _"Los correo deben pertenecer a la organizacion - terminar en: @nousacademy.co"_). The `setCorreo` setter on `Usuario` applies a slightly looser check (`endsWith(".co")`), so the stricter rule applies only during object construction.
+</Note>
+
+---
+
+## Updating an Administrator
+
+`AcademiaController.actualizarUsuario` patches an existing administrator. Only fields supplied as non-empty strings (or non-null for `tipoDocumento`) are written.
+
+```java
+public void actualizarUsuario(
+    TipoDocumento originalTD,
+    String originalND,
+    String nombre,
+    String apellidos,
+    String telefono,
+    String correo,
+    TipoDocumento tipoDocumento,
+    String numeroDocumento
+) throws CorreoNoValido, NombreNoValido, ElementoNoExistente, IOException, ValoresNegativos
+```
+
+<Steps>
+  <Step title="Locate the record">
+    `buscarUnUsuario(originalTD, originalND)` searches by the **original** document type and number. Throws `ElementoNoExistente` if not found.
+  </Step>
+  <Step title="Apply non-empty fields">
+    Each parameter is checked: if it is not an empty string (or not `null` for `tipoDocumento`), the corresponding setter is called on the located `Usuario` object. Field validation inside each setter still applies.
+  </Step>
+  <Step title="Re-persist">
+    The old file (`datos/<originalTD prefix><originalND>.usr`) is deleted with `File.delete()`. The user is then serialized again under the new filename derived from the (potentially updated) document type and number.
+  </Step>
+</Steps>
+
+<Warning>
+  Pass an empty string `""` for any field you do **not** want to change. Passing `null` for `tipoDocumento` is the way to leave it unchanged. Passing `null` for any `String` parameter will cause a `NullPointerException`.
+</Warning>
+
+---
+
+## Deleting an Administrator
+
+```java
+public void eliminarUsuario(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento
+) throws ElementoNoExistente
+```
+
+Locates the user by `tipoDocumento` + `numeroDocumento`, deletes the corresponding `.usr` file from `datos/`, swaps the entry with the last element in the array, and shrinks the array by one. Throws `ElementoNoExistente` if no matching record is found.
+
+---
+
+## Listing All Administrators
+
+```java
+public Usuario[] leerUsuarios()
+```
+
+Returns a **clone** of the internal `usuarios` array. Mutations to the returned array do not affect the controller's internal state.
+
+---
+
+## File Persistence
+
+Each administrator record is persisted as a Java serialized object file:
+
+| Detail | Value |
+|---|---|
+| Directory | `datos/` |
+| Extension | `.usr` |
+| Filename pattern | `<first 2 chars of TipoDocumento name><numeroDocumento>.usr` |
+| Serialization | `ObjectOutputStream` wrapping a `FileOutputStream` |
+| `serialVersionUID` | `20012008L` |
+
+**Examples:**
+
+| TipoDocumento | numeroDocumento | Filename |
+|---|---|---|
+| `CC` | `12345678` | `CC12345678.usr` |
+| `TARJETA_IDENTIDAD` | `99001122` | `TA99001122.usr` |
+| `CE` | `55443300` | `CE55443300.usr` |
+| `PASAPORTE` | `AB123456` | `PAAB123456.usr` |
+| `NIT` | `8001234560` | `NI8001234560.usr` |
+
+<Tip>
+  The prefix is always `tipoDocumento.name().substring(0, 2)`, so `TARJETA_IDENTIDAD` becomes `TA`, `PASAPORTE` becomes `PA`, and `NIT` becomes `NI`.
+</Tip>
+
+---
+
+## Document Types
+
+The `TipoDocumento` enum defines the accepted document categories:
+
+| Enum constant | Description |
+|---|---|
+| `CC` | Cédula de Ciudadanía |
+| `TARJETA_IDENTIDAD` | Tarjeta de Identidad |
+| `CE` | Cédula de Extranjería |
+| `PASAPORTE` | Pasaporte |
+| `NIT` | Número de Identificación Tributaria |

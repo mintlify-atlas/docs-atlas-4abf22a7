@@ -1,0 +1,229 @@
+---
+title: Group Management
+description: Create and manage student groups, assign teachers and reservations, and control group membership in NOUS ACADEMY.
+---
+
+## Overview
+
+Groups (`Grupo`) are organizational units that bundle students, teachers, and class reservations together. An administrator manages the lifecycle of a group, while students can join or leave groups on their own. Each group carries a unique auto-generated code in the format `GRUP001`, `GRUP002`, etc.
+
+<CardGroup cols={3}>
+  <Card title="Students" icon="graduation-cap">
+    Up to 4 groups per student. Students join and leave groups themselves.
+  </Card>
+  <Card title="Teachers" icon="chalkboard-teacher">
+    Administrators add or remove teachers from groups.
+  </Card>
+  <Card title="Reservations" icon="calendar">
+    Administrators link existing reservations to groups for scheduling visibility.
+  </Card>
+</CardGroup>
+
+---
+
+## Group Code Format
+
+Group codes are generated automatically with a zero-padded sequential counter:
+
+```
+GRUP001
+GRUP002
+GRUP003
+...
+```
+
+The `generarCodigo("GRUP")` method in `Grupo` uses a static counter (`serial`) that increments with each new group, producing codes like `GRUP` + `%03d`.
+
+---
+
+## Creating a Group
+
+Only administrators can create groups.
+
+```java
+// AcademiaController.crearGrupo
+public void crearGrupo(
+    String nombre,
+    String descripcion
+) throws ElementosVacios, IOException
+```
+
+<Steps>
+  <Step title="Validate inputs">
+    Both `nombre` and `descripcion` must be non-empty strings. Passing an empty value for either throws `ElementosVacios`.
+  </Step>
+  <Step title="Group is created">
+    A `Grupo` is instantiated with an auto-generated code and empty arrays for students, teachers, and reservations.
+  </Step>
+  <Step title="Persisted to disk">
+    The group is serialized to `datos/<grupoCodigo>.grp` (e.g., `datos/GRUP001.grp`).
+  </Step>
+</Steps>
+
+---
+
+## Updating a Group
+
+An administrator can update a group's name and description. Fields passed as empty strings are left unchanged.
+
+```java
+// AcademiaController.actualizarGrupo
+public void actualizarGrupo(
+    String codigo,
+    String nombre,
+    String descripcion
+) throws ElementoNoExistente, IOException
+```
+
+- Pass an empty string for `nombre` or `descripcion` to leave that field unchanged.
+- Throws `ElementoNoExistente` if no group with the given `codigo` exists.
+- The updated group is persisted back to `datos/<grupoCodigo>.grp`.
+
+---
+
+## Deleting a Group
+
+Administrative deletion removes all students from the group before destroying it.
+
+```java
+// AcademiaController.eliminarGrupo
+public void eliminarGrupo(
+    String codigo
+) throws ElementoNoExistente, GrupoNoEncontrado
+```
+
+<Steps>
+  <Step title="eliminacionAdministrativa() is called">
+    Iterates every student in the group and calls `estudiante.eliminarGrupo(this)`, removing the group reference from each student's record.
+  </Step>
+  <Step title="File is deleted">
+    The `.grp` file at `datos/<grupoCodigo>.grp` is removed from disk.
+  </Step>
+  <Step title="Removed from the registry">
+    The group is removed from the controller's `grupos` array.
+  </Step>
+</Steps>
+
+<Warning>
+  Deletion is irreversible. All students are silently ejected from the group. Reservations linked to the group are **not** cancelled — only the group-to-reservation association is removed.
+</Warning>
+
+---
+
+## Student Membership
+
+### Joining a Group
+
+A logged-in student can join any existing group by its code.
+
+```java
+// AcademiaController.entrarGrupo
+public void entrarGrupo(
+    Estudiante estudiante,   // the logged-in student
+    String codigo            // group code, e.g. "GRUP001"
+) throws ElementoNoExistente, CantidadGruposExcedida, IOException, Duplicados
+```
+
+<Note>
+  Each student can belong to a maximum of **4 groups** simultaneously. Attempting to join a fifth group throws `CantidadGruposExcedida` (enforced in `Estudiante.addGrupo`).
+</Note>
+
+Joining a group the student is already a member of throws `Duplicados`.
+
+### Leaving a Group
+
+A logged-in student can leave a group at any time.
+
+```java
+// AcademiaController.salirseGrupo
+public void salirseGrupo(
+    Estudiante estudiante,   // the logged-in student
+    String codigo            // group code
+) throws ElementoNoExistente, GrupoNoEncontrado, EstudianteNoEnGrupo, IOException
+```
+
+- Throws `EstudianteNoEnGrupo` if the student is not a member of the specified group.
+- Both the student's `grupos` array and the group's `estudiantes` array are updated and persisted.
+
+---
+
+## Teacher Management
+
+### Adding a Teacher to a Group
+
+```java
+// AcademiaController.añadirDocente
+public void añadirDocente(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    String codigoGrupo
+) throws ElementoNoExistente, IOException
+```
+
+The teacher is appended to the group's `docentes` array. Both the group file and the teacher file are updated on disk.
+
+### Removing a Teacher from a Group
+
+```java
+// AcademiaController.eliminarDocente  (group overload)
+public void eliminarDocente(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    String codigoGrupo
+) throws ElementoNoExistente, DocenteNoEnGrupo, IOException
+```
+
+- Throws `DocenteNoEnGrupo` if the teacher is not assigned to the specified group.
+- Note: `AcademiaController` also has an overload of `eliminarDocente(TipoDocumento, String)` for removing a teacher entirely from the academy. The three-argument version shown here targets only the group association.
+
+---
+
+## Reservation Management in Groups
+
+Groups can have reservations linked to them for scheduling and visibility purposes. Linking a reservation to a group does not enroll any students — those are separate operations.
+
+### Adding a Reservation to a Group
+
+```java
+// AcademiaController.anadirReserva
+public void anadirReserva(
+    String codigoGrupo,
+    String codigoReserva
+) throws ElementoNoExistente, IOException
+```
+
+The reservation is appended to the group's `reservas` array. Both the group file (`.grp`) and the reservation file (`.res`) are refreshed on disk.
+
+### Removing a Reservation from a Group
+
+```java
+// AcademiaController.eliminarReserva  (group + reservation overload)
+public void eliminarReserva(
+    String codigoGrupo,
+    String codigoReserva
+) throws ElementoNoExistente, ReservaNoEncontradaEnGrupo, IOException
+```
+
+- Throws `ReservaNoEncontradaEnGrupo` if the reservation is not linked to the specified group.
+- The reservation itself is **not** deleted from the academy — only the group-to-reservation association is removed.
+- Both the group file and the reservation file are updated on disk.
+
+<Tip>
+  Use the two-argument `eliminarReserva(codigoGrupo, codigoReserva)` to unlink a reservation from a group. Use the single-argument `eliminarReserva(codigoReserva)` (admin operation) to permanently cancel and remove a reservation from the entire system.
+</Tip>
+
+---
+
+## File Persistence
+
+Groups are serialized using Java's `ObjectOutputStream`. Each group is stored as:
+
+```
+datos/<grupoCodigo>.grp
+```
+
+Examples:
+- `datos/GRUP001.grp` — first group
+- `datos/GRUP002.grp` — second group
+
+The file is written or overwritten on every mutating operation (create, update, add/remove student, add/remove teacher, add/remove reservation).

@@ -1,0 +1,466 @@
+---
+title: Exceptions
+description: Complete reference for all 37 custom exceptions in com.nousacademy.excepciones. Each exception extends java.lang.Exception.
+---
+
+## Overview
+
+All custom exceptions live in the package `com.nousacademy.excepciones` and extend `java.lang.Exception`. They are checked exceptions — callers must either catch them or declare them in their `throws` clause.
+
+The table below lists every exception. The sections that follow group them by functional domain and describe which controller methods throw each one.
+
+---
+
+## Quick reference
+
+| Exception class | Default message |
+|-----------------|----------------|
+| `AforoIncompatible` | Aforo incompatible: el máximo no puede ser menor al mínimo. |
+| `CalificacionInvalida` | La calificacion solo puede darse entre 1 y 5 |
+| `CantidadGruposExcedida` | Solo puedes registrarte en maximo 4 grupos |
+| `ClaseEnEstadoNOCalificar` | Aun no puedes calificar la clase |
+| `ClaseEnEstadoNoCancelar` | La clase no se puede canclear despues de que falten 30 min para que inicie. |
+| `ClaseEnEstadoNoIniciar` | Aun no puedes empezar la clase - Debe ser entre 5min antes y no despues de 10min |
+| `ClaseEnEstadoNoUnirse` | No te puedes unir a una clase que no ha iniciado |
+| `ClaseLlena` | La reserva ya supero su aforo maximo |
+| `ClaseNoEnEstudiante` | La clase no pertenence a las clases de este estudiante |
+| `ClaseNuncaIniciada` | La clase no ha sido iniciada |
+| `ClasesPrivadasNoSuficientes` | No posses una cantidad de clases privadas suficientes |
+| `ClaseYaReservada` | Ya tienes una reserva esperando |
+| `CorreoNoValido` | Los correo deben pertenecer a la organizacion - terminar en: @nousacademy.co |
+| `DineroInsuficienteParaContratar` | No hay suficiente capital para contratar |
+| `DocenteNoEnGrupo` | El docente no pertence a este grupo |
+| `DocenteRetardado` | Clase iniciada tarde |
+| `Duplicados` | Datos ya existentes |
+| `ElementoNoExistente` | Elemento no encotrado |
+| `ElementosVacios` | Campos vacios no permitidos |
+| `EstadoContratoDoc` | *(no message)* |
+| `EstadoContratoInvalido` | Este estado de contrato no es valido |
+| `EstadoMembresiaInvalido` | El estado de la membresia no es valido |
+| `EstudianteNoEnGrupo` | El estudiante no pertence al grupo |
+| `EstudianteNoEnlistadoEnReserva` | El estudiante no esta en la reserva o en sus asistentes |
+| `EstudianteSinMembresia` | Solo puedes entrar si tienes una membresía activa. |
+| `FechaInvalida` | Fecha no valida, es anterior a la actual |
+| `FinalizacionPrematuraDeReserva` | Finalizo la clase antes de tiempo |
+| `GrupoNoEncontrado` | El grupo no fue encontrado |
+| `ImposibleRetirar` | No hay suficiente Capital |
+| `LongitudNoValida` | Campos con caracteres no suficientes |
+| `NingunDocenteAsignado` | NO hay docente asignado a la reserva |
+| `NombreNoValido` | Nombre demasiado corto |
+| `NoSuficienteAforo` | Aforo no alcanzado para iniciar |
+| `ReservaNoEncontradaEnGrupo` | Reserva no esta en este grupo |
+| `ReservaNoEnDocente` | La reserva no esta asignada a este docente |
+| `TipoMembresiaInvalida` | Tipo de membresia no valido |
+| `ValoresNegativos` | Campos con valores negarivos no permitidos |
+
+---
+
+## User and validation errors
+
+These exceptions protect input fields across user, student, and teacher creation and update flows.
+
+<AccordionGroup>
+  <Accordion title="CorreoNoValido">
+    **Package:** `com.nousacademy.excepciones`
+
+    **Message:** `Los correo deben pertenecer a la organizacion - terminar en: @nousacademy.co`
+
+    Thrown when an email address does not contain `@` or does not end with `nousacademy.co`.
+
+    **Thrown by:**
+    - `AcademiaController.setCorreo()`
+    - `AcademiaController.crearUsuario()`
+    - `AcademiaController.actualizarUsuario()`
+    - `AcademiaController.crearEstudiante()`
+    - `AcademiaController.actualizarEstudiante()`
+    - `AcademiaController.crearDocente()`
+    - `AcademiaController.actualizarDocente()`
+    - `Usuario` constructor
+  </Accordion>
+
+  <Accordion title="NombreNoValido">
+    **Package:** `com.nousacademy.excepciones`
+
+    **Message:** `Nombre demasiado corto`
+
+    Thrown when `nombre` or `apellidos` is shorter than 2 characters.
+
+    **Thrown by:**
+    - `AcademiaController.crearUsuario()`
+    - `AcademiaController.actualizarUsuario()`
+    - `AcademiaController.crearEstudiante()`
+    - `AcademiaController.actualizarEstudiante()`
+    - `AcademiaController.crearDocente()`
+    - `AcademiaController.actualizarDocente()`
+    - `Usuario.setNombre()` / `setApellidos()`
+  </Accordion>
+
+  <Accordion title="ElementosVacios">
+    **Package:** `com.nousacademy.excepciones`
+
+    **Message:** `Campos vacios no permitidos`
+
+    Thrown when a required field is an empty string or `null`. Also used as a generic null-check for contract and membership objects.
+
+    **Thrown by:**
+    - `AcademiaController.crearUsuario()`, `crearEstudiante()`, `crearDocente()`
+    - `AcademiaController.crearUnaReservaGrupal()`, `crearUnaReservaPersonalizada()`
+    - `AcademiaController.crearGrupo()`
+    - `AcademiaController.actualizarEstadoContratoDocente()`
+    - `AcademiaController.asignarMembresiaPersonalizada()`
+    - `Clase` constructor, `Grupo` constructor, `Usuario` constructor
+    - `Docente.setContrato()`, `Docente.actualizarEstadoContrato()`
+  </Accordion>
+
+  <Accordion title="LongitudNoValida">
+    **Package:** `com.nousacademy.excepciones`
+
+    **Message:** `Campos con caracteres no suficientes`
+
+    Thrown when `telefono` or `numeroDocumento` is shorter than 5 characters.
+
+    **Thrown by:**
+    - `AcademiaController.crearUsuario()`
+    - `AcademiaController.crearEstudiante()`
+    - `AcademiaController.crearDocente()`
+    - `Usuario` constructor
+  </Accordion>
+
+  <Accordion title="ValoresNegativos">
+    **Package:** `com.nousacademy.excepciones`
+
+    **Message:** `Campos con valores negarivos no permitidos`
+
+    Thrown on any numeric field that violates its non-negative or positive constraint.
+
+    **Thrown by:**
+    - `AcademiaController.setTelefono()`, `inyectarCapital()`, `retirarCapital()`
+    - `AcademiaController.crearUnaReservaGrupal()`, `crearUnaReservaPersonalizada()`
+    - `AcademiaController.asignarContrato()`, `asignarMembresiaPersonalizada()`
+    - `AcademiaController.asignarMembresiaDefinida()`
+    - `Membresia` and `Contrato` constructors and setters
+    - `ClaseGrupal.actualizarAforo()`
+  </Accordion>
+
+  <Accordion title="Duplicados">
+    **Package:** `com.nousacademy.excepciones`
+
+    **Message:** `Datos ya existentes`
+
+    Thrown when an entity with the same document number, username, or object reference already exists in the target collection.
+
+    **Thrown by:**
+    - `AcademiaController.crearUsuario()`
+    - `AcademiaController.crearEstudiante()`
+    - `AcademiaController.crearDocente()`
+    - `AcademiaController.entrarGrupo()`
+    - `Grupo.anadirEstudiante()`
+  </Accordion>
+
+  <Accordion title="FechaInvalida">
+    **Package:** `com.nousacademy.excepciones`
+
+    **Message:** `Fecha no valida, es anterior a la actual`
+
+    Thrown when a date or timestamp is in the past.
+
+    **Thrown by:**
+    - `AcademiaController.crearUnaReservaGrupal()`, `crearUnaReservaPersonalizada()`
+    - `AcademiaController.asignarContrato()`
+    - `AcademiaController.asignarMembresiaPersonalizada()`, `asignarMembresiaDefinida()`
+    - `Reserva` constructors
+    - `Membresia` constructors and `setFechaInicio()`
+    - `Contrato` constructor and `setFechaInicio()`
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Class and reservation errors
+
+These exceptions govern the reservation lifecycle — enrollment, start, end, attendance, and rating.
+
+<AccordionGroup>
+  <Accordion title="ClaseLlena">
+    **Message:** `La reserva ya supero su aforo maximo`
+
+    Thrown when a student tries to enrol in a reservation that has reached its `aforoMaximo` (or a `ClasePersonalizada` already has one student).
+
+    **Thrown by:** `AcademiaController.reservarClase()`, `crearUnaReservaPersonalizada()` — `Reserva.reservarEstudiante()`
+  </Accordion>
+
+  <Accordion title="ClaseYaReservada">
+    **Message:** `Ya tienes una reserva esperando`
+
+    Thrown when a student who already has an active reservation (`reservado == true`) tries to make another.
+
+    **Thrown by:** `AcademiaController.reservarClase()`, `crearUnaReservaPersonalizada()` — `Estudiante.reservarClase()`
+  </Accordion>
+
+  <Accordion title="ClaseEnEstadoNoIniciar">
+    **Message:** `Aun no puedes empezar la clase - Debe ser entre 5min antes y no despues de 10min`
+
+    Thrown when the teacher tries to start a class more than 5 minutes before its scheduled time.
+
+    **Thrown by:** `AcademiaController.inciarReserva()` — `Reserva.iniciarClase()`
+  </Accordion>
+
+  <Accordion title="ClaseEnEstadoNoCancelar">
+    **Message:** `La clase no se puede canclear despues de que falten 30 min para que inicie.`
+
+    Thrown when a student tries to cancel their reservation within 30 minutes of the scheduled start.
+
+    **Thrown by:** `AcademiaController.cancelarResrva()` — `Reserva.cancelarReserva()`
+  </Accordion>
+
+  <Accordion title="ClaseEnEstadoNOCalificar">
+    **Message:** `Aun no puedes calificar la clase`
+
+    Thrown when a student tries to rate a reservation that is not yet in a ratable state (`EXITOSA`, `PREMATURA`, or `TARDE`).
+
+    **Thrown by:** `AcademiaController.calificarReserva()` — `Reserva.calificarClase()`
+  </Accordion>
+
+  <Accordion title="ClaseEnEstadoNoUnirse">
+    **Message:** `No te puedes unir a una clase que no ha iniciado`
+
+    Thrown when a student calls `unirseReserva` but the reservation is not `EN_CURSO`.
+
+    **Thrown by:** `AcademiaController.unirseReserva()` — `Reserva.unirseClase()`
+  </Accordion>
+
+  <Accordion title="ClaseNuncaIniciada">
+    **Message:** `La clase no ha sido iniciada`
+
+    Thrown when `finalizarClase()` is called on a reservation whose state is not `EN_CURSO`.
+
+    **Thrown by:** `AcademiaController.finalizarReserva()` — `Reserva.finalizarClase()`
+  </Accordion>
+
+  <Accordion title="ClaseNoEnEstudiante">
+    **Message:** `La clase no pertenence a las clases de este estudiante`
+
+    Thrown when `cancelarReserva()` cannot find the class in the student's `historialClases`.
+
+    **Thrown by:** `AcademiaController.cancelarResrva()` — `Estudiante.cancelarReserva()`
+  </Accordion>
+
+  <Accordion title="AforoIncompatible">
+    **Message:** `Aforo incompatible: el máximo no puede ser menor al mínimo.`
+
+    Thrown when `aforoMaximo < aforoMinimo` during group class creation.
+
+    **Thrown by:** `AcademiaController.crearUnaReservaGrupal()` — `ClaseGrupal` constructor
+  </Accordion>
+
+  <Accordion title="NoSuficienteAforo">
+    **Message:** `Aforo no alcanzado para iniciar`
+
+    Thrown when the teacher tries to start a group class but enrolled students < `aforoMinimo`.
+
+    **Thrown by:** `AcademiaController.inciarReserva()` — `Reserva.iniciarClase()`
+  </Accordion>
+
+  <Accordion title="CalificacionInvalida">
+    **Message:** `La calificacion solo puede darse entre 1 y 5`
+
+    Thrown when a submitted rating is outside the range \[1, 5\].
+
+    **Thrown by:** `AcademiaController.calificarReserva()` — `Reserva.calificarClase()`
+  </Accordion>
+
+  <Accordion title="DocenteRetardado">
+    **Message:** `Clase iniciada tarde`
+
+    Thrown when a teacher starts a class more than 10 minutes after the scheduled time. The reservation state is set to `TARDE` before the exception is thrown.
+
+    **Thrown by:** `AcademiaController.inciarReserva()` — `Reserva.iniciarClase()`
+  </Accordion>
+
+  <Accordion title="FinalizacionPrematuraDeReserva">
+    **Message:** `Finalizo la clase antes de tiempo`
+
+    Thrown when the real duration is more than 25 minutes shorter than the expected duration. State is set to `PREMATURA` before the exception is thrown.
+
+    **Thrown by:** `AcademiaController.finalizarReserva()` — `Reserva.finalizarClase()`
+  </Accordion>
+
+  <Accordion title="NingunDocenteAsignado">
+    **Message:** `NO hay docente asignado a la reserva`
+
+    Thrown when `cancelarDocente()` is called but the reservation has no teacher assigned.
+
+    **Thrown by:** `AcademiaController.cancelarDocente()` — `Reserva.cancelarDocente()`
+  </Accordion>
+
+  <Accordion title="ReservaNoEnDocente">
+    **Message:** `La reserva no esta asignada a este docente`
+
+    Thrown when `cancelarDocente()` cannot find the reservation in the teacher's `historialClasesImpartidas`.
+
+    **Thrown by:** `AcademiaController.cancelarDocente()` — `Docente.cancelarReservaDocente()`
+  </Accordion>
+
+  <Accordion title="EstudianteNoEnlistadoEnReserva">
+    **Message:** `El estudiante no esta en la reserva o en sus asistentes`
+
+    Thrown when an operation requires the student to be in the reservation but they are not found in `estudiantes` or `asistentes`.
+
+    **Thrown by:**
+    - `AcademiaController.cancelarResrva()` — `Reserva.cancelarReserva()`
+    - `AcademiaController.calificarReserva()` — `Reserva.calificarClase()`
+    - `AcademiaController.unirseReserva()` — `Reserva.unirseClase()`
+  </Accordion>
+
+  <Accordion title="ClasesPrivadasNoSuficientes">
+    **Message:** `No posses una cantidad de clases privadas suficientes`
+
+    Thrown when a student tries to enrol in or create a `ClasePersonalizada` but has no private class credits remaining.
+
+    **Thrown by:**
+    - `AcademiaController.reservarClase()`, `crearUnaReservaPersonalizada()`
+    - `Estudiante.actualizarPrivadasRestantes()`
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Membership and contract errors
+
+<AccordionGroup>
+  <Accordion title="EstadoMembresiaInvalido">
+    **Message:** `El estado de la membresia no es valido`
+
+    Thrown when `null` is passed as a `EstadoMembresia` to `actualizarEstadoMembresia()`.
+
+    **Thrown by:**
+    - `AcademiaController.actualizarEstadoMembresia()`
+    - `Membresia.actualizarEstadoMembresia()`
+    - `Estudiante.asignarMembresia()` (when cancelling previous membership)
+  </Accordion>
+
+  <Accordion title="EstadoContratoInvalido">
+    **Message:** `Este estado de contrato no es valido`
+
+    Thrown when `null` is passed as an `EstadoContrato` to `actualizarEstadoContrato()`.
+
+    **Thrown by:**
+    - `AcademiaController.actualizarEstadoContratoDocente()`
+    - `AcademiaController.asignarContrato()`
+    - `Contrato.actualizarEstadoContrato()`
+    - `Docente.asignarContrato()`, `actualizarEstadoContrato()`
+  </Accordion>
+
+  <Accordion title="EstadoContratoDoc">
+    **Message:** *(no message — default `Exception` message)*
+
+    Thrown by `Docente.setContrato()` when the provided contract has state `FINALIZADO`.
+
+    **Thrown by:** `Docente.setContrato()`
+  </Accordion>
+
+  <Accordion title="TipoMembresiaInvalida">
+    **Message:** `Tipo de membresia no valido`
+
+    Thrown when `null` or `PERSONALIZADA` is passed as the `TipoMembresia` to the pre-defined membership constructor.
+
+    **Thrown by:**
+    - `AcademiaController.asignarMembresiaDefinida()`
+    - `Membresia` constructor (pre-defined plan)
+    - `Estudiante.asignarMembresia(TipoMembresia, ...)`
+  </Accordion>
+
+  <Accordion title="DineroInsuficienteParaContratar">
+    **Message:** `No hay suficiente capital para contratar`
+
+    Thrown before creating a contract when `capital < salarioBase × meses`.
+
+    **Thrown by:** `AcademiaController.asignarContrato()`
+  </Accordion>
+
+  <Accordion title="ClasesPrivadasNoSuficientes">
+    See [Class and reservation errors](#class-and-reservation-errors) above.
+  </Accordion>
+
+  <Accordion title="EstudianteSinMembresia">
+    **Message:** `Solo puedes entrar si tienes una membresía activa.`
+
+    Thrown when an operation requires an active membership but the student has none. Defined but not currently thrown by the controller — intended for UI-layer guard checks.
+
+    **Thrown by:** UI / presentation layer guards (not directly by the controller).
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Group errors
+
+<AccordionGroup>
+  <Accordion title="CantidadGruposExcedida">
+    **Message:** `Solo puedes registrarte en maximo 4 grupos`
+
+    Thrown when a student who is already in 4 groups tries to join another.
+
+    **Thrown by:** `AcademiaController.entrarGrupo()` — `Estudiante.addGrupo()`
+  </Accordion>
+
+  <Accordion title="EstudianteNoEnGrupo">
+    **Message:** `El estudiante no pertence al grupo`
+
+    Thrown when an operation tries to remove a student who is not in the group.
+
+    **Thrown by:** `AcademiaController.salirseGrupo()` — `Grupo.eliminarEstudiante()`
+  </Accordion>
+
+  <Accordion title="DocenteNoEnGrupo">
+    **Message:** `El docente no pertence a este grupo`
+
+    Thrown when an operation tries to remove a teacher who is not in the group.
+
+    **Thrown by:** `AcademiaController.eliminarDocente(TipoDocumento, String, String)` — `Grupo.eliminarDocente()`
+  </Accordion>
+
+  <Accordion title="GrupoNoEncontrado">
+    **Message:** `El grupo no fue encontrado`
+
+    Thrown by `Estudiante.eliminarGrupo()` when the group is not in the student's list, and propagated through `Grupo.eliminarEstudiante()` and `eliminacionAdministrativa()`.
+
+    **Thrown by:**
+    - `AcademiaController.salirseGrupo()`
+    - `AcademiaController.eliminarGrupo()`
+    - `Estudiante.eliminarGrupo()`
+  </Accordion>
+
+  <Accordion title="ReservaNoEncontradaEnGrupo">
+    **Message:** `Reserva no esta en este grupo`
+
+    Thrown when trying to remove a reservation that is not linked to the group.
+
+    **Thrown by:** `AcademiaController.eliminarReserva(String, String)` — `Grupo.eliminarReserva()`
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Generic errors
+
+<AccordionGroup>
+  <Accordion title="ElementoNoExistente">
+    **Message:** `Elemento no encotrado`
+
+    General-purpose not-found exception thrown by all five search methods and any deletion that fails to find the target.
+
+    **Thrown by:**
+    - `AcademiaController.buscarUnEstudiante()`, `buscarUnGrupo()`, `buscarUnaReserva()`, `buscarUnDocente()`, `buscarUnUsuario()`
+    - `AcademiaController.eliminarUsuario()`, `eliminarEstudiante()`, `eliminarDocente()`, `eliminarGrupo()`, `eliminarReserva()`
+    - Any controller method that internally calls one of the search methods
+  </Accordion>
+
+  <Accordion title="ImposibleRetirar">
+    **Message:** `No hay suficiente Capital`
+
+    Thrown when `retirarCapital()` is called with an amount greater than the current balance.
+
+    **Thrown by:** `AcademiaController.retirarCapital()`
+  </Accordion>
+</AccordionGroup>

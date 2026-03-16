@@ -1,0 +1,336 @@
+---
+title: Class Management
+description: Create and manage group and personalized class reservations throughout their full lifecycle in NOUS ACADEMY.
+---
+
+## Overview
+
+NOUS ACADEMY models classes through two distinct types, each wrapped inside a **`Reserva`** (reservation) object. The `Reserva` is the primary entity you interact with — it holds the scheduled time window, the enrolled students, the assigned teacher, and the current lifecycle state. The `Clase` inside a `Reserva` holds the academic metadata (title, topic, duration).
+
+<CardGroup cols={2}>
+  <Card title="ClaseGrupal" icon="users">
+    A group class open to multiple students. Requires a minimum and maximum capacity (aforo). Code prefix: `PB`.
+  </Card>
+  <Card title="ClasePersonalizada" icon="user">
+    A one-on-one private class for a single student. Consumes one private-class credit from the student's membership. Code prefix: `PV`.
+  </Card>
+</CardGroup>
+
+---
+
+## Reservation State Machine
+
+Every `Reserva` carries an `EstadoReserva` that advances through a defined set of transitions. No manual state updates are needed — each operation method drives the transition automatically.
+
+| State | Description |
+|---|---|
+| `PENDIENTE` | Initial state. Reservation created, no teacher assigned yet or not yet started. |
+| `LLENA` | All spots are taken. For `ClasePersonalizada` this is set as soon as the single student enrolls. For `ClaseGrupal` it is set when `aforoActual == aforoMaximo`. |
+| `EN_CURSO` | Class has been started by the teacher via `inciarReserva`. |
+| `EXITOSA` | Class finished normally (actual duration ≥ scheduled duration − 25 min). |
+| `PREMATURA` | Class ended more than 25 minutes before the scheduled duration. Teacher receives a sanction. |
+| `TARDE` | Teacher called `inciarReserva` more than 10 minutes after `horaInicioEsperada`. |
+| `CANCELADA` | Administratively cancelled or cancelled by the only enrolled student of a `ClasePersonalizada`. |
+| `SANCIONADA` | Reserved for sanctioned states (see business rules). |
+
+**Allowed rating states:** A student may call `calificarReserva` only when the reservation is in `EXITOSA`, `PREMATURA`, or `TARDE`.
+
+**Cancellation deadline:** A student may cancel their spot up to **30 minutes** before `horaInicioEsperada`. After that threshold the operation throws `ClaseEnEstadoNoCancelar`.
+
+**Start window:** The teacher may start the class no earlier than **5 minutes before** and no later than **10 minutes after** the scheduled start time.
+
+---
+
+## Creating a Group Class Reservation
+
+Group reservations are created by an administrator.
+
+```java
+// AcademiaController.crearUnaReservaGrupal
+public void crearUnaReservaGrupal(
+    LocalDateTime horaInicioEsperada,
+    String titulo,
+    String descripcion,
+    String tema,
+    float duracion,      // minutes
+    int aforoMin,
+    int aforoMax
+) throws ElementosVacios, AforoIncompatible, IOException, FechaInvalida, ValoresNegativos
+```
+
+<Steps>
+  <Step title="Validate the start time">
+    `horaInicioEsperada` must be in the future. Passing a past timestamp throws `FechaInvalida`.
+  </Step>
+  <Step title="Validate capacity">
+    `aforoMin` and `aforoMax` must be non-negative, and `aforoMax` must be **≥ aforoMin**. Violating this throws `AforoIncompatible`.
+  </Step>
+  <Step title="Reservation is created">
+    A `Reserva` wrapping a `ClaseGrupal` is instantiated with state `PENDIENTE`. The expected close time is computed as `horaInicioEsperada + duracion` (minutes).
+  </Step>
+  <Step title="Persisted to disk">
+    The reservation is serialized to `datos/<classCodigo>.res`.
+  </Step>
+</Steps>
+
+<Note>
+  Duration is expressed in **minutes** as a `float`. For a 90-minute class pass `90.0f`.
+</Note>
+
+---
+
+## Creating a Personalized Class Reservation
+
+Personalized reservations are created by the **logged-in student**. The student is automatically enrolled at creation time.
+
+```java
+// AcademiaController.crearUnaReservaPersonalizada
+public void crearUnaReservaPersonalizada(
+    Estudiante estudiante,          // the logged-in student
+    LocalDateTime horaInicioEsperada,
+    String titulo,
+    String descripcion,
+    String tema,
+    float duracion,                 // minutes
+    String info                     // optional attached information
+) throws ElementosVacios, ClasesPrivadasNoSuficientes, ClaseYaReservada,
+         ClaseLlena, IOException, FechaInvalida, ValoresNegativos
+```
+
+<Warning>
+  The student must have an active membership with at least one private-class credit remaining. If `clasesPrivadasRestantes == 0`, the call throws `ClasesPrivadasNoSuficientes` and no reservation is created.
+</Warning>
+
+Because there is only one slot, the reservation transitions immediately to `LLENA` after creation.
+
+---
+
+## Aforo (Capacity) Constraints
+
+Aforo rules apply only to `ClaseGrupal`:
+
+- **`aforoMinimo`** — minimum number of enrolled students required before the teacher can start the class. If `estudiantes.length < aforoMinimo`, `inciarReserva` throws `NoSuficienteAforo`.
+- **`aforoMaximo`** — hard cap. Once `estudiantes.length == aforoMaximo`, the state becomes `LLENA` and further `reservarClase` calls throw `ClaseLlena`.
+- The constructor enforces `aforoMaximo >= aforoMinimo`; passing an invalid pair throws `AforoIncompatible`.
+
+```java
+// ClaseGrupal constructor — aforo validation
+public ClaseGrupal(
+    String titulo, String descripcion, String tema,
+    float duracion,
+    int aforoMinimo,
+    int aforoMaximo
+) throws ElementosVacios, AforoIncompatible {
+    // ...
+    if (aforoMaximo < aforoMinimo) {
+        throw new AforoIncompatible();
+    }
+    // ...
+}
+```
+
+---
+
+## Assigning a Teacher
+
+An administrator assigns a teacher to an existing reservation. Both the reservation and the teacher's own record are updated and persisted.
+
+```java
+// AcademiaController.asignarClase
+public void asignarClase(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    String codigoReserva
+) throws ElementoNoExistente, IOException
+```
+
+Internally this calls `Reserva.asignarDocente(Docente)`, which sets the teacher reference and marks `EstadoDocente` as `ACEPTADA`.
+
+---
+
+## Canceling a Teacher Assignment
+
+An administrator can unassign the teacher from a reservation.
+
+```java
+// AcademiaController.cancelarDocente
+public void cancelarDocente(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    String codigoReserva
+) throws ElementoNoExistente, NingunDocenteAsignado, ReservaNoEnDocente, IOException
+```
+
+- Throws `NingunDocenteAsignado` if no teacher is currently assigned.
+- Resets `EstadoDocente` to `EN_ESPERA` and clears the `docente` field on the reservation.
+
+---
+
+## Starting a Class
+
+The logged-in teacher starts the class. The call is rejected outside the valid time window and if the group class has not reached minimum capacity.
+
+```java
+// AcademiaController.inciarReserva
+public void inciarReserva(
+    Docente docente,
+    String codigoReserva
+) throws ElementoNoExistente, DocenteRetardado,
+         ClaseEnEstadoNoIniciar, NoSuficienteAforo, IOException
+```
+
+<Tabs>
+  <Tab title="Too early">
+    If the current time is more than 5 minutes before `horaInicioEsperada`, throws `ClaseEnEstadoNoIniciar`. The state does not change.
+  </Tab>
+  <Tab title="On time">
+    Current time is within the window `[horaInicioEsperada - 5min, horaInicioEsperada + 10min]`. State transitions to `EN_CURSO` and `horaInicioReal` is recorded.
+  </Tab>
+  <Tab title="Too late">
+    If the current time is more than 10 minutes after `horaInicioEsperada`, the state is set to `TARDE` and `DocenteRetardado` is thrown.
+  </Tab>
+</Tabs>
+
+---
+
+## Finishing a Class
+
+The logged-in teacher ends the class. Real duration is computed and compared to the scheduled duration.
+
+```java
+// AcademiaController.finalizarReserva
+public void finalizarReserva(
+    Docente docente,
+    String codigoReserva
+) throws ElementoNoExistente, ClaseNuncaIniciada, FinalizacionPrematuraDeReserva, IOException
+```
+
+- Throws `ClaseNuncaIniciada` if `estadoReserva != EN_CURSO`.
+- If `duracionReal < duracion - 25` minutes, the state is set to `PREMATURA`, `FinalizacionPrematuraDeReserva` is thrown, and the teacher receives a sanction.
+- Otherwise the state becomes `EXITOSA` and the teacher's work record (`trabajoDocente`) is updated.
+- In both cases all enrolled students have their `reservado` flag reset via `claseFinalizada()`.
+
+---
+
+## Reserving a Spot (Student)
+
+A student reserves a spot in an existing group class reservation.
+
+```java
+// AcademiaController.reservarClase
+public void reservarClase(
+    Estudiante estudiante,
+    String codigoReserva
+) throws ElementoNoExistente, ClasesPrivadasNoSuficientes,
+         ClaseYaReservada, ClaseLlena, IOException
+```
+
+- Throws `ClaseLlena` if `estadoReserva == LLENA`.
+- For `ClasePersonalizada`, reserving also deducts one private-class credit. If none remain, throws `ClasesPrivadasNoSuficientes`.
+- A student can only hold one active reservation at a time (`reservado == true` → `ClaseYaReservada`).
+
+---
+
+## Canceling a Reservation (Student)
+
+A student withdraws from a reservation they previously enrolled in.
+
+```java
+// AcademiaController.cancelarResrva
+public void cancelarResrva(
+    Estudiante estudiante,
+    String codigoReserva
+) throws ElementoNoExistente, EstudianteNoEnlistadoEnReserva,
+         ClaseEnEstadoNoCancelar, ClaseNoEnEstudiante, IOException
+```
+
+<Warning>
+  Cancellation is only allowed more than **30 minutes** before `horaInicioEsperada`. Attempting to cancel within that window throws `ClaseEnEstadoNoCancelar`.
+</Warning>
+
+Canceling a `ClasePersonalizada` also transitions its `estadoReserva` to `CANCELADA`.
+
+---
+
+## Joining an In-Progress Class (Student)
+
+Once a class is in `EN_CURSO`, enrolled students can mark themselves as present.
+
+```java
+// AcademiaController.unirseReserva
+public void unirseReserva(
+    Estudiante estudiante,
+    String codigoReserva
+) throws ElementoNoExistente, ClaseEnEstadoNoUnirse,
+         EstudianteNoEnlistadoEnReserva, IOException
+```
+
+- The student must have previously called `reservarClase` for this reservation.
+- If `estadoReserva != EN_CURSO`, throws `ClaseEnEstadoNoUnirse`.
+- On success the student is added to the `asistentes` array, which is the basis for rating eligibility.
+
+---
+
+## Rating a Class (Student)
+
+After the class ends, attending students can submit a rating.
+
+```java
+// AcademiaController.calificarReserva
+public void calificarReserva(
+    Estudiante estudiante,
+    float calificacion,    // valid range: 1.0 to 5.0 (inclusive)
+    String codigoReserva
+) throws ElementoNoExistente, ClaseEnEstadoNOCalificar,
+         EstudianteNoEnlistadoEnReserva, IOException, CalificacionInvalida
+```
+
+- Only students in the `asistentes` array (those who called `unirseReserva`) are eligible. Others receive `EstudianteNoEnlistadoEnReserva`.
+- Valid `calificacion` range is **1.0 – 5.0**. Outside this range throws `CalificacionInvalida`.
+- Ratings are accepted when `estadoReserva` is `EXITOSA`, `PREMATURA`, or `TARDE`.
+- Each submitted rating updates the `calificacionGeneral` (running average) on the reservation and increments the teacher's rating counter.
+
+---
+
+## Administrative Deletion
+
+An administrator can permanently delete a reservation regardless of its current state.
+
+```java
+// AcademiaController.eliminarReserva
+public void eliminarReserva(
+    String codigoReserva
+) throws ElementoNoExistente
+```
+
+<Steps>
+  <Step title="cancelacionAdministrativa() is called">
+    Sets `estadoReserva` to `CANCELADA` and calls `claseFinalizada()` on every enrolled student, freeing their `reservado` flag.
+  </Step>
+  <Step title="File is deleted">
+    The `.res` file at `datos/<codigoReserva>.res` is removed from disk.
+  </Step>
+  <Step title="Removed from the registry">
+    The reservation is removed from the controller's `reservas` array.
+  </Step>
+</Steps>
+
+<Note>
+  Reservations cannot be modified after creation — only created or deleted. To change class details, delete the existing reservation and create a new one.
+</Note>
+
+---
+
+## File Persistence
+
+Reservations are serialized using Java's `ObjectOutputStream`. Each reservation is stored as a binary file:
+
+```
+datos/<classCodigo>.res
+```
+
+Examples:
+- `datos/PB-001.res` — first group class reservation
+- `datos/PV-001.res` — first personalized class reservation
+
+The file is written or overwritten on every state-changing operation (create, assign teacher, enroll student, start, finish, rate, cancel).

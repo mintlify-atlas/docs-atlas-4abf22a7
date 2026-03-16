@@ -1,0 +1,257 @@
+---
+title: Student
+description: Full reference for the Student (Estudiante) role in NOUS ACADEMY — class fields, membership model, group limits, and all available operations.
+---
+
+The **Student** (`Estudiante`) role is the primary consumer of the academy's services. Students can browse and join groups, reserve and attend classes, create private class requests, and rate completed sessions. They log in to the `StudentFrame` dashboard.
+
+## Data model
+
+`Estudiante` extends `Usuario` and adds membership, group, and reservation-tracking fields:
+
+```java
+public class Estudiante extends Usuario implements Serializable {
+    private Membresia membresia;           // Current active membership (null if none)
+    private Membresia[] historialMembresias; // All previously cancelled memberships
+    private Clase[] historialClases;       // Classes the student has reserved
+    private int clasesPrivadasRestantes;   // Remaining private-class slots from the membership
+    private Grupo[] grupos;               // Groups the student currently belongs to
+    private int cantidadDeGrupos;         // Always kept in sync with grupos.length
+    private boolean reservado;            // true when the student has an active reservation
+}
+```
+
+The `tipoUsuario` field is set to `TipoUsuario.ESTUDIANTE` at construction time. All membership and group fields start empty; they are populated by operations performed after registration.
+
+### Inherited fields from `Usuario`
+
+| Field | Description |
+|---|---|
+| `nombre` | First name (min 2 characters) |
+| `apellidos` | Last name(s) (min 2 characters) |
+| `telefono` | Phone number (≥ 5 digits, non-negative) |
+| `correo` | Email — must contain `@` and end with `nousacademy.co` |
+| `tipoDocumento` | One of `CC`, `TARJETA_IDENTIDAD`, `CE`, `PASAPORTE`, `NIT` |
+| `numeroDocumento` | Document number (≥ 5 digits, non-negative) |
+| `usuario` | Login username |
+| `contrasena` | Password |
+
+## StudentFrame — tabbed interface
+
+After login the application opens `StudentFrame` (titled **NOUS ACADEMY — Estudiante**) with six tabs:
+
+<Tabs>
+  <Tab title="Grupos disponibles">
+    Table of all groups registered in the academy. Columns: Código, Nombre, Descripción.
+
+    Action panel: enter a group code and click **Unirse** to join the group.
+  </Tab>
+  <Tab title="Mis grupos">
+    Table of the groups the student currently belongs to. Columns: Código, Nombre, Descripción.
+
+    Action panel: enter a group code and click **Salir** to leave the group.
+  </Tab>
+  <Tab title="Reservas disponibles">
+    Table of reservations belonging to the student's enrolled groups (deduplicated). Columns: Código, Tipo, Título, Tema, Inicio esperado, Duración, Estado, Docente, Cupos/estudiantes, Grupo.
+
+    Action panel: enter a reservation code and click **Reservar** to enroll.
+  </Tab>
+  <Tab title="Mis reservas">
+    Table of reservations where the student appears as an enrolled student or as an attendee. Columns: Código, Tipo, Título, Inicio esperado, Estado, Docente, Calificada, Calificación general.
+
+    Action panel: cancel a reservation, join an in-progress class, or rate a completed class.
+  </Tab>
+  <Tab title="Reservas personalizadas">
+    Form to create and immediately reserve a private (`ClasePersonalizada`) reservation. Fields: start date/time, title, description, topic, duration (minutes), and additional info.
+  </Tab>
+  <Tab title="Mis datos">
+    Read-only view of the student's personal information: name, document, email, phone, current membership type, membership state, remaining private-class slots, and number of enrolled groups.
+  </Tab>
+</Tabs>
+
+## Membership model
+
+A membership grants the student access to the academy's services and determines how many private-class sessions are available.
+
+### Membership types
+
+```java
+public enum TipoMembresia {
+    BASICA,
+    INTENSIVA,
+    PREMIUM,
+    PERSONALIZADA
+}
+```
+
+### Membership states
+
+```java
+public enum EstadoMembresia {
+    EN_PROGRESO,  // Membership is currently active
+    SUSPENDIDA,   // Temporarily paused
+    CANCELADA     // Terminated (moved to historialMembresias)
+}
+```
+
+### Assigning a membership
+
+Only an administrator can assign a membership. Two variants are available:
+
+**Predefined plan:**
+```java
+// controller call:
+controller.asignarMembresiaDefinida(tipoDocumento, numeroDocumento,
+    TipoMembresia.PREMIUM, fechaInicio, meses);
+```
+
+**Custom plan:**
+```java
+// controller call:
+controller.asignarMembresiaPersonalizada(tipoDocumento, numeroDocumento,
+    fechaInicio, precio, clasesPrivadas, meses);
+```
+
+In both cases `clasesPrivadasRestantes` is set to the value provided by the new membership's `getClasesPrivadas()`.
+
+<Note>
+If the student already holds a membership it is set to `EstadoMembresia.CANCELADA` and moved to `historialMembresias` before the new membership is created.
+</Note>
+
+## Group membership limit
+
+<Warning>
+A student can belong to a maximum of **4 groups** at the same time. Attempting to join a fifth group throws `CantidadGruposExcedida`.
+
+```java
+public void addGrupo(Grupo grupo) throws CantidadGruposExcedida {
+    if (this.cantidadDeGrupos == 4) {
+        throw new CantidadGruposExcedida();
+    }
+    // ...
+}
+```
+</Warning>
+
+## Operations reference
+
+<AccordionGroup>
+  <Accordion title="Join a group">
+    `controller.entrarGrupo(estudiante, codigoGrupo)`
+
+    Looks up the group by code and calls `grupo.anadirEstudiante(estudiante)`, which in turn calls `estudiante.addGrupo(grupo)`. Both the student's `.est` file and the group's `.grp` file are updated.
+
+    **Preconditions:**
+    - Group must exist (`ElementoNoExistente` otherwise)
+    - Student must not already be in the group (`Duplicados` otherwise)
+    - Student must have fewer than 4 groups (`CantidadGruposExcedida` otherwise)
+  </Accordion>
+
+  <Accordion title="Leave a group">
+    `controller.salirseGrupo(estudiante, codigoGrupo)`
+
+    Calls `grupo.eliminarEstudiante(estudiante)` and `estudiante.eliminarGrupo(grupo)`. Both persistence files are updated.
+
+    **Preconditions:**
+    - Group must exist (`ElementoNoExistente` otherwise)
+    - Student must be a member of the group (`EstudianteNoEnGrupo` otherwise)
+  </Accordion>
+
+  <Accordion title="Reserve a class">
+    `controller.reservarClase(estudiante, codigoReserva)`
+
+    The reservation must be associated with one of the student's groups (visible in the **Reservas disponibles** tab). Internally calls `reserva.reservarEstudiante(estudiante)`.
+
+    **Preconditions:**
+    - Reservation must exist (`ElementoNoExistente` otherwise)
+    - Student must not already have an active reservation — `reservado == true` throws `ClaseYaReservada`
+    - Reservation must not be `LLENA` (`ClaseLlena` otherwise)
+    - For `ClasePersonalizada`: student must have `clasesPrivadasRestantes > 0` (`ClasesPrivadasNoSuficientes` otherwise)
+
+    After a successful call:
+    - The student is added to `reserva.estudiantes`
+    - `estudiante.reservado` is set to `true`
+    - `clasesPrivadasRestantes` is decremented by 1 if the class is a `ClasePersonalizada`
+    - If the reservation reaches `aforoMaximo` (group class) or has any student (private class), its state changes to `LLENA`
+
+    <Warning>
+    Private-class reservations (`ClasePersonalizada`) require the student to have a membership with remaining private-class slots. Without a membership or with `clasesPrivadasRestantes == 0`, the operation fails.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="Cancel a reservation">
+    `controller.cancelarResrva(estudiante, codigoReserva)`
+
+    The student is removed from `reserva.estudiantes`. The cancellation is only allowed **more than 30 minutes before** the scheduled start time; attempting to cancel within 30 minutes throws `ClaseEnEstadoNoCancelar`.
+
+    ```java
+    if (LocalDateTime.now().isAfter(this.horaInicioEsperada.minusMinutes(30))) {
+        throw new ClaseEnEstadoNoCancelar();
+    }
+    ```
+
+    For `ClasePersonalizada`, the reservation state is set to `CANCELADA` upon the student's withdrawal.
+
+    After cancellation `estudiante.reservado` is reset to `false` and `estudiante.cancelarReserva(clase)` removes the class from the student's `historialClases`.
+  </Accordion>
+
+  <Accordion title="Join an in-progress class">
+    `controller.unirseReserva(estudiante, codigoReserva)`
+
+    Moves the student from `reserva.estudiantes` (enrolled) to `reserva.asistentes` (present). Only possible when the reservation is in `EN_CURSO` state.
+
+    **Preconditions:**
+    - Student must be enrolled in the reservation (`EstudianteNoEnlistadoEnReserva` otherwise)
+    - Reservation state must be `EN_CURSO` (`ClaseEnEstadoNoUnirse` otherwise)
+  </Accordion>
+
+  <Accordion title="Create a private reservation">
+    `controller.crearUnaReservaPersonalizada(estudiante, horaInicioEsperada, titulo, descripcion, tema, duracion, info)`
+
+    Available from the **Reservas personalizadas** tab. Creates a new `ClasePersonalizada` reservation and immediately enrolls the student. The reservation is added to the global reservations array and persisted as a `.res` file.
+
+    **Preconditions:**
+    - Student must not already have an active reservation
+    - Student must have `clasesPrivadasRestantes > 0`
+    - Start time must be in the future
+    - Duration must be non-negative
+  </Accordion>
+
+  <Accordion title="Rate a class">
+    `controller.calificarReserva(estudiante, calificacion, codigoReserva)`
+
+    Available from the **Mis reservas** action panel after a class ends. The rating is an integer from **1 to 5** (enforced: `CalificacionInvalida` if outside this range).
+
+    **Preconditions:**
+    - Student must be in `reserva.asistentes` (must have joined the class while it was `EN_CURSO`)
+    - Reservation must be in `EXITOSA`, `PREMATURA`, or `TARDE` state (`ClaseEnEstadoNOCalificar` otherwise)
+    - Rating must be between 1 and 5 inclusive
+
+    After rating:
+    - The individual rating is appended to `calificacionIndividual`
+    - The general average `calificacionGeneral` is recalculated
+    - `reserva.calificada` is set to `true`
+    - `docente.calificacionDocente()` is called to update the teacher's overall average rating
+  </Accordion>
+</AccordionGroup>
+
+## Reservation state reference
+
+Reservations (`Reserva`) move through the following states. The student's view in **Mis reservas** reflects these in real time:
+
+```java
+public enum EstadoReserva {
+    PENDIENTE,   // Created, waiting for students and teacher
+    EN_CURSO,    // Class has been started by the teacher
+    CANCELADA,   // Administratively cancelled, or private class student withdrew
+    EXITOSA,     // Class finished within the allowed time
+    LLENA,       // Maximum capacity reached (no more enrolments accepted)
+    SANCIONADA,  // Reserved for future use
+    PREMATURA,   // Teacher ended the class more than 25 minutes early
+    TARDE        // Teacher started the class more than 10 minutes late
+}
+```
+
+<Tip>
+Students can only rate a reservation when it is in `EXITOSA`, `PREMATURA`, or `TARDE` state, and only if they joined the class while it was `EN_CURSO` (i.e., they appear in `asistentes`, not just in `estudiantes`).
+</Tip>

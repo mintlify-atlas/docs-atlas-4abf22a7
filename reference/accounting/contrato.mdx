@@ -1,0 +1,176 @@
+---
+title: Contrato
+description: Represents a teacher's employment contract. Implements ComportamientoContable, contributing negatively to academy capital (an expense) when assigned.
+---
+
+## Overview
+
+`Contrato` encodes a time-bounded employment agreement between the academy and a teacher. The contract generates an expense — `impactoComercial()` returns `-salarioBase × meses` — which is subtracted from academy capital by the controller when the contract is created.
+
+```java
+package com.nousacademy.contabilidad;
+
+public class Contrato implements ComportamientoContable, Serializable { ... }
+```
+
+---
+
+## Fields
+
+<ResponseField name="codigo" type="String">
+  Auto-generated unique code in `CON001` format (3-digit zero-padded serial).
+</ResponseField>
+
+<ResponseField name="fechaInicio" type="LocalDate">
+  Contract start date. Must not be in the past.
+</ResponseField>
+
+<ResponseField name="fechaFinalizacion" type="LocalDate">
+  Computed end date: `fechaInicio + meses` months.
+</ResponseField>
+
+<ResponseField name="salarioBase" type="double">
+  Monthly base salary in COP (must be > 0).
+</ResponseField>
+
+<ResponseField name="horasMinimas" type="double">
+  Minimum hours the teacher must work per month (must be ≥ 0).
+</ResponseField>
+
+<ResponseField name="costoHoraPrivadaAdicional" type="double">
+  Cost charged per additional private class hour beyond `horasMinimas` (must be ≥ 0).
+</ResponseField>
+
+<ResponseField name="estadoContrato" type="EstadoContrato">
+  Current contract state: `ACTIVO`, `SUSPENDIDO`, or `FINALIZADO`. Starts as `ACTIVO`.
+</ResponseField>
+
+<ResponseField name="meses" type="int">
+  Contract duration in months (must be > 0).
+</ResponseField>
+
+---
+
+## EstadoContrato
+
+```java
+public enum EstadoContrato {
+    ACTIVO, SUSPENDIDO, FINALIZADO
+}
+```
+
+| State | Meaning |
+|-------|---------|
+| `ACTIVO` | Contract is active. Initial state. |
+| `SUSPENDIDO` | Contract is temporarily suspended. |
+| `FINALIZADO` | Contract has ended. The `Docente` reference is set to `null` when this transition is made via `actualizarEstadoContrato`. |
+
+---
+
+## Constructor
+
+```java
+public Contrato(
+    LocalDate fechaInicio,
+    double salarioBase,
+    double horasMinimas,
+    double costoHoraPrivadaAdicional,
+    int meses
+) throws FechaInvalida, ValoresNegativos
+```
+
+Creates a new contract. Sets initial state to `ACTIVO` and computes `fechaFinalizacion`.
+
+<ParamField path="fechaInicio" type="LocalDate" required>Start date (must not be `null` or before today).</ParamField>
+<ParamField path="salarioBase" type="double" required>Monthly base salary (must be > 0).</ParamField>
+<ParamField path="horasMinimas" type="double" required>Minimum monthly hours (must be ≥ 0).</ParamField>
+<ParamField path="costoHoraPrivadaAdicional" type="double" required>Cost per additional private hour (must be ≥ 0).</ParamField>
+<ParamField path="meses" type="int" required>Duration in months (must be > 0).</ParamField>
+
+| Throws | Condition |
+|--------|-----------|
+| `FechaInvalida` | `fechaInicio` is `null` or before today. |
+| `ValoresNegativos` | `salarioBase ≤ 0`, `horasMinimas < 0`, `costoHoraPrivadaAdicional < 0`, or `meses ≤ 0`. |
+
+---
+
+## ComportamientoContable interface
+
+`Contrato` implements `com.nousacademy.contabilidad.ComportamientoContable`.
+
+### `impactoComercial()`
+
+```java
+@Override
+public double impactoComercial()
+```
+
+Returns `-this.salarioBase * this.meses`. This negative value is added to `capital` in the controller, effectively reducing it.
+
+**Return:** negative double representing total contract cost.
+
+### `generarCodigo(String sufijo)`
+
+```java
+@Override
+public String generarCodigo(String sufijo)
+```
+
+Increments the static serial and returns `sufijo + String.format("%03d", serial)`. Always called with `"CON"`, producing codes like `CON001`, `CON002`, …
+
+---
+
+## Methods
+
+### `actualizarEstadoContrato(EstadoContrato nuevoEstado)`
+
+```java
+public void actualizarEstadoContrato(EstadoContrato nuevoEstado)
+    throws EstadoContratoInvalido
+```
+
+Changes the contract state.
+
+<ParamField path="nuevoEstado" type="EstadoContrato" required>New state (must not be `null`).</ParamField>
+
+| Throws | Condition |
+|--------|-----------|
+| `EstadoContratoInvalido` | `nuevoEstado` is `null`. |
+
+<Note>
+When `actualizarEstadoContratoDocente` in the controller passes `FINALIZADO`, the `Docente` class sets `this.contrato = null` and archives the contract to `historialContratos`.
+</Note>
+
+### `copiarFicheroContrato(String dir)`
+
+```java
+public void copiarFicheroContrato(String dir) throws IOException
+```
+
+Serializes the contract to the given path.
+
+---
+
+## Getters and setters
+
+| Method | Type | Validation | Description |
+|--------|------|-----------|-------------|
+| `getCodigo()` | `String` | — | Returns the contract code. |
+| `getFechaInicio()` | `LocalDate` | — | Returns the start date. |
+| `setFechaInicio(LocalDate)` | `void` | Not null, not before today → `FechaInvalida` | Updates start date and recalculates `fechaFinalizacion`. |
+| `getFechaFinalizacion()` | `LocalDate` | — | Returns the computed end date. |
+| `setFechaFinalizacion(LocalDate)` | `void` | No validation | Directly overrides the end date. |
+| `getSalarioBase()` | `double` | — | Returns monthly base salary. |
+| `setSalarioBase(double)` | `void` | Must be > 0 → `ValoresNegativos` | Updates base salary. |
+| `getHorasMinimas()` | `double` | — | Returns minimum monthly hours. |
+| `setHorasMinimas(double)` | `void` | Must be ≥ 0 → `ValoresNegativos` | Updates minimum hours. |
+| `getCostoHoraPrivadaAdicional()` | `double` | — | Returns additional hour cost. |
+| `setCostoHoraPrivadaAdicional(double)` | `void` | Must be ≥ 0 → `ValoresNegativos` | Updates additional hour cost. |
+| `getMeses()` | `int` | — | Returns contract duration. |
+| `getEstadoContrato()` | `EstadoContrato` | — | Returns current contract state. |
+
+---
+
+## Serialization
+
+`Contrato` implements `java.io.Serializable` with `serialVersionUID = 1L`.

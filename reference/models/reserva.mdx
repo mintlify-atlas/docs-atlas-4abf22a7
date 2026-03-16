@@ -1,0 +1,341 @@
+---
+title: Reserva
+description: Wraps a Clase instance with scheduling information, enrollment state, participants, and ratings. The Reserva is the central operational object in NOUS ACADEMY.
+---
+
+## Overview
+
+A `Reserva` combines a `Clase` (either `ClaseGrupal` or `ClasePersonalizada`) with real-time scheduling data, participant lists, and lifecycle state. It is created through `AcademiaController` and persisted to `datos/<codigo>.res`.
+
+```java
+package com.nousacademy.modelo;
+
+public class Reserva implements Serializable { ... }
+```
+
+---
+
+## Fields
+
+<ResponseField name="clase" type="Clase">
+  The underlying class definition — either a `ClaseGrupal` or `ClasePersonalizada`.
+</ResponseField>
+
+<ResponseField name="horaInicioEsperada" type="LocalDateTime">
+  Scheduled start time. Must be in the future at creation.
+</ResponseField>
+
+<ResponseField name="horaCierreEsperada" type="LocalDateTime">
+  Derived field: `horaInicioEsperada + duracion` minutes.
+</ResponseField>
+
+<ResponseField name="horaInicioReal" type="LocalDateTime">
+  Actual start time, set when `iniciarClase()` is called.
+</ResponseField>
+
+<ResponseField name="horaCierreReal" type="LocalDateTime">
+  Actual end time, set when `finalizarClase()` is called.
+</ResponseField>
+
+<ResponseField name="duracionReal" type="float">
+  Real duration in minutes, computed as `horaInicioReal.until(horaCierreReal, MINUTES)`.
+</ResponseField>
+
+<ResponseField name="estadoReserva" type="EstadoReserva">
+  Current lifecycle state of the reservation. See [EstadoReserva](#estadoreserva).
+</ResponseField>
+
+<ResponseField name="estadoDocente" type="EstadoDocente">
+  Whether a teacher has accepted the reservation (`ACEPTADA`) or is awaiting one (`EN_ESPERA`).
+</ResponseField>
+
+<ResponseField name="docente" type="Docente">
+  The teacher assigned to this reservation. `null` until assigned.
+</ResponseField>
+
+<ResponseField name="estudiantes" type="Estudiante[]">
+  Students enrolled in the reservation.
+</ResponseField>
+
+<ResponseField name="asistentes" type="Estudiante[]">
+  Students who actually joined the live class (a subset of `estudiantes`).
+</ResponseField>
+
+<ResponseField name="calificacionIndividual" type="float[]">
+  Individual ratings submitted by attendees (1–5 each).
+</ResponseField>
+
+<ResponseField name="calificacionGeneral" type="float">
+  Running average of all individual ratings.
+</ResponseField>
+
+<ResponseField name="calificada" type="boolean">
+  `true` once at least one student has submitted a rating.
+</ResponseField>
+
+---
+
+## Constructors
+
+<Tabs>
+  <Tab title="Group class">
+```java
+public Reserva(
+    LocalDateTime horaInicioEsperada,
+    String titulo,
+    String descripcion,
+    String tema,
+    float duracion,
+    int aforoMin,
+    int aforoMax
+) throws ElementosVacios, AforoIncompatible, FechaInvalida, ValoresNegativos
+```
+
+Creates a reservation wrapping a new `ClaseGrupal`. Initial state is `PENDIENTE`.
+
+<ParamField path="horaInicioEsperada" type="LocalDateTime" required>Scheduled start (must be in the future).</ParamField>
+<ParamField path="titulo" type="String" required>Class title.</ParamField>
+<ParamField path="descripcion" type="String" required>Class description.</ParamField>
+<ParamField path="tema" type="String" required>Topic.</ParamField>
+<ParamField path="duracion" type="float" required>Duration in minutes (> 0).</ParamField>
+<ParamField path="aforoMin" type="int" required>Minimum attendance required to start.</ParamField>
+<ParamField path="aforoMax" type="int" required>Maximum enrollment capacity.</ParamField>
+  </Tab>
+  <Tab title="Private class">
+```java
+public Reserva(
+    LocalDateTime horaInicioEsperada,
+    String titulo,
+    String descripcion,
+    String tema,
+    float duracion,
+    String info
+) throws ElementosVacios, FechaInvalida, ValoresNegativos
+```
+
+Creates a reservation wrapping a new `ClasePersonalizada`. Initial state is `PENDIENTE`.
+
+<ParamField path="horaInicioEsperada" type="LocalDateTime" required>Scheduled start (must be in the future).</ParamField>
+<ParamField path="titulo" type="String" required>Class title.</ParamField>
+<ParamField path="descripcion" type="String" required>Class description.</ParamField>
+<ParamField path="tema" type="String" required>Topic.</ParamField>
+<ParamField path="duracion" type="float" required>Duration in minutes (> 0).</ParamField>
+<ParamField path="info" type="String">Optional notes or requirements for the private class.</ParamField>
+  </Tab>
+</Tabs>
+
+---
+
+## EstadoReserva
+
+`EstadoReserva` is an enum in `com.nousacademy.modelo` that represents every possible lifecycle state.
+
+| Value | Meaning |
+|-------|---------|
+| `PENDIENTE` | Created, waiting for students and a teacher. Initial state. |
+| `LLENA` | Enrollment has reached `aforoMaximo` (or a private class has one student). |
+| `EN_CURSO` | Class has been started by the teacher. |
+| `EXITOSA` | Class ended normally (real duration ≥ expected − 25 min). |
+| `PREMATURA` | Class ended more than 25 minutes early. |
+| `TARDE` | Class was started more than 10 minutes past schedule. |
+| `CANCELADA` | Class was cancelled by the student (private) or administratively. |
+| `SANCIONADA` | Reserved for future sanction logic. |
+
+### State transitions
+
+```
+PENDIENTE ──enroll student──► LLENA
+PENDIENTE / LLENA ──iniciarClase (on time)──► EN_CURSO
+PENDIENTE / LLENA ──iniciarClase (> 10 min late)──► TARDE  →  DocenteRetardado thrown
+EN_CURSO ──finalizarClase (normal)──► EXITOSA
+EN_CURSO ──finalizarClase (> 25 min early)──► PREMATURA  →  FinalizacionPrematuraDeReserva thrown
+* ──cancelacionAdministrativa()──► CANCELADA
+ClasePersonalizada ──cancelarReserva(student)──► CANCELADA
+```
+
+<Note>
+Rating is allowed in states `EXITOSA`, `PREMATURA`, and `TARDE`. Joining as an attendee (`unirseClase`) is only allowed in `EN_CURSO`.
+</Note>
+
+---
+
+## Public methods
+
+### `getCodigo()`
+
+```java
+public String getCodigo()
+```
+
+Convenience method that delegates to `this.clase.getCodigo()`. Returns the class code (e.g., `PB-001`).
+
+### `iniciarClase()`
+
+```java
+public void iniciarClase()
+    throws DocenteRetardado, ClaseEnEstadoNoIniciar, NoSuficienteAforo
+```
+
+Starts the class. Called internally by `AcademiaController.inciarReserva()`.
+
+- Allowed window: 5 min before to 10 min after `horaInicioEsperada`.
+- If called after 10 min: sets state to `TARDE`, throws `DocenteRetardado`.
+- If called before 5 min: throws `ClaseEnEstadoNoIniciar`.
+- For group classes: throws `NoSuficienteAforo` if enrolled count < `aforoMinimo`.
+- On success: records `horaInicioReal`, sets state to `EN_CURSO`.
+
+### `finalizarClase()`
+
+```java
+public void finalizarClase()
+    throws ClaseNuncaIniciada, FinalizacionPrematuraDeReserva
+```
+
+Ends the class. Called internally by `AcademiaController.finalizarReserva()`.
+
+- Requires state `EN_CURSO`; otherwise throws `ClaseNuncaIniciada`.
+- Records `horaCierreReal` and computes `duracionReal`.
+- If `duracionReal < clase.duracion − 25`: sets state to `PREMATURA`, frees students, throws `FinalizacionPrematuraDeReserva`.
+- Otherwise: sets state to `EXITOSA` (or retains `TARDE` if started late), frees students, and calls `docente.trabajoDocente(this)` for `EXITOSA` classes.
+
+### `cancelacionAdministrativa()`
+
+```java
+public void cancelacionAdministrativa()
+```
+
+Sets state to `CANCELADA` and calls `claseFinalizada()` on every enrolled student. Called by `AcademiaController.eliminarReserva()`.
+
+### `reservarEstudiante(Estudiante estudiante)`
+
+```java
+public void reservarEstudiante(Estudiante estudiante)
+    throws ClasesPrivadasNoSuficientes, ClaseYaReservada, ClaseLlena
+```
+
+Enrols a student. Delegates to `estudiante.reservarClase(clase)` for membership and duplicate checks. Advances state to `LLENA` when the class reaches capacity.
+
+| Throws | Condition |
+|--------|-----------|
+| `ClaseLlena` | Reservation is already at capacity. |
+| `ClaseYaReservada` | Student already has an active reservation. |
+| `ClasesPrivadasNoSuficientes` | Personalized class but student has no credits. |
+
+### `asignarDocente(Docente docente)`
+
+```java
+public void asignarDocente(Docente docente)
+```
+
+Sets the teacher, adds this reservation to the teacher's history, and sets `estadoDocente` to `ACEPTADA`.
+
+### `cancelarDocente()`
+
+```java
+public void cancelarDocente()
+    throws ReservaNoEnDocente, NingunDocenteAsignado
+```
+
+Removes the teacher assignment. Sets `estadoDocente` back to `EN_ESPERA`.
+
+| Throws | Condition |
+|--------|-----------|
+| `NingunDocenteAsignado` | No teacher is currently assigned. |
+| `ReservaNoEnDocente` | The reservation is not in the teacher's history. |
+
+### `cancelarReserva(Estudiante estudiante)`
+
+```java
+public void cancelarReserva(Estudiante estudiante)
+    throws EstudianteNoEnlistadoEnReserva, ClaseEnEstadoNoCancelar, ClaseNoEnEstudiante
+```
+
+Removes the student from `estudiantes` and (if present) `asistentes`. For `ClasePersonalizada`, sets state to `CANCELADA`.
+
+| Throws | Condition |
+|--------|-----------|
+| `EstudianteNoEnlistadoEnReserva` | Student not in enrolled list. |
+| `ClaseEnEstadoNoCancelar` | Current time is within 30 minutes of `horaInicioEsperada`. |
+| `ClaseNoEnEstudiante` | Class not in student's history. |
+
+### `unirseClase(Estudiante estudiante)`
+
+```java
+public void unirseClase(Estudiante estudiante)
+    throws ClaseEnEstadoNoUnirse, EstudianteNoEnlistadoEnReserva
+```
+
+Adds the student to `asistentes`. Student must be enrolled and the class must be `EN_CURSO`.
+
+### `calificarClase(Estudiante estudiante, float calificacion)`
+
+```java
+public void calificarClase(Estudiante estudiante, float calificacion)
+    throws ClaseEnEstadoNOCalificar, EstudianteNoEnlistadoEnReserva, CalificacionInvalida
+```
+
+Appends a rating to `calificacionIndividual`, recalculates `calificacionGeneral`, and calls `docente.calificacionDocente()` to update the teacher's aggregate rating.
+
+| Throws | Condition |
+|--------|-----------|
+| `CalificacionInvalida` | Rating outside 1–5. |
+| `EstudianteNoEnlistadoEnReserva` | Student not in attendees list. |
+| `ClaseEnEstadoNOCalificar` | State is not `EXITOSA`, `PREMATURA`, or `TARDE`. |
+
+### `actualizarCalificacionGeneral()`
+
+```java
+public void actualizarCalificacionGeneral()
+```
+
+Recomputes `calificacionGeneral` as the arithmetic mean of `calificacionIndividual`.
+
+### `actualizarEstado(EstadoReserva estado)`
+
+```java
+public void actualizarEstado(EstadoReserva estado)
+```
+
+Directly sets the reservation state.
+
+### `actualizarEstadoDocente(EstadoDocente estado)`
+
+```java
+public void actualizarEstadoDocente(EstadoDocente estado)
+```
+
+Directly sets the teacher assignment state.
+
+### `copiarFicheroReserva(String dir)`
+
+```java
+public void copiarFicheroReserva(String dir) throws IOException
+```
+
+Serializes the `Reserva` object to the specified path using `ObjectOutputStream`. Called after every state-changing operation to keep the `.res` file current.
+
+<ParamField path="dir" type="String" required>
+  Destination file path, typically `datos/<codigo>.res`.
+</ParamField>
+
+---
+
+## Getters summary
+
+| Method | Return type | Description |
+|--------|-------------|-------------|
+| `getCodigo()` | `String` | Delegates to `clase.getCodigo()`. |
+| `getClase()` | `Clase` | The wrapped class object. |
+| `getHoraInicioEsperada()` | `LocalDateTime` | Scheduled start. |
+| `getHoraCierreEsperada()` | `LocalDateTime` | Scheduled end. |
+| `getHoraInicioEReal()` | `LocalDateTime` | Actual start. |
+| `getHoraCierreEReal()` | `LocalDateTime` | Actual end. |
+| `getDuracionReal()` | `float` | Real duration in minutes. |
+| `getDocente()` | `Docente` | Assigned teacher (may be `null`). |
+| `getEstadoReserva()` | `EstadoReserva` | Current lifecycle state. |
+| `getEstadoDocente()` | `EstadoDocente` | Teacher assignment state. |
+| `getEstudiantes()` | `Estudiante[]` | Enrolled students. |
+| `getAsistentes()` | `Estudiante[]` | Actual attendees. |
+| `getCalificacionGeneral()` | `float` | Average rating. |
+| `getCalificacionIndividual()` | `float[]` | Array of individual ratings. |
+| `getCalificada()` | `boolean` | Whether at least one rating has been submitted. |

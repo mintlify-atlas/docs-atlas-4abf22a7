@@ -1,0 +1,968 @@
+---
+title: AcademiaController
+description: Central controller for the NOUS ACADEMY application. Manages all academy data — users, students, teachers, reservations, groups, and capital — and drives file persistence for every entity.
+---
+
+## Overview
+
+`AcademiaController` is the single entry point for all business operations in NOUS ACADEMY. It holds the academy's internal state (collections of users, students, teachers, reservations, and groups) and delegates validation to the respective model constructors. Every mutating operation that touches persistent state also writes the affected file to `datos/`.
+
+```java
+package com.nousacademy.controller;
+
+public class AcademiaController { ... }
+```
+
+<Note>
+All arrays inside the controller start empty (`new X[0]`) and grow with `Arrays.copyOf`. There is no fixed capacity.
+</Note>
+
+---
+
+## Constructor
+
+```java
+public AcademiaController(
+    String nit,
+    String nombre,
+    String telefono,
+    String correo,
+    double capital
+)
+```
+
+Initialises the academy with its identifying information and opening capital. All internal collections (`usuarios`, `estudiantes`, `docentes`, `reservas`, `grupos`) are created as empty arrays.
+
+<ParamField path="nit" type="String" required>
+  Tax identification number of the academy.
+</ParamField>
+
+<ParamField path="nombre" type="String" required>
+  Legal name of the academy.
+</ParamField>
+
+<ParamField path="telefono" type="String" required>
+  Contact phone number. Must be parseable as a number and non-negative.
+</ParamField>
+
+<ParamField path="correo" type="String" required>
+  Academy email address. Must contain `@` and end with `nousacademy.co`.
+</ParamField>
+
+<ParamField path="capital" type="double" required>
+  Opening capital of the academy in COP.
+</ParamField>
+
+---
+
+## Academy info
+
+Getters and setters for the core academy properties. Every setter (except for the array setters) rewrites `datos/NousAcademy.txt` to persist the change.
+
+### Getters
+
+| Method | Return type | Description |
+|--------|-------------|-------------|
+| `getNit()` | `String` | Returns the academy NIT. |
+| `getNombre()` | `String` | Returns the academy name. |
+| `getTelefono()` | `String` | Returns the phone number. |
+| `getCorreo()` | `String` | Returns the email address. |
+| `getCapital()` | `double` | Returns the current capital balance. |
+
+### Setters
+
+#### `setNit(String nit)`
+
+```java
+public void setNit(String nit) throws IOException
+```
+
+Updates the academy NIT and rewrites the persistence file.
+
+<ParamField path="nit" type="String" required>
+  New NIT value.
+</ParamField>
+
+#### `setNombre(String nombre)`
+
+```java
+public void setNombre(String nombre) throws IOException
+```
+
+Updates the academy name and rewrites the persistence file.
+
+<ParamField path="nombre" type="String" required>
+  New name value.
+</ParamField>
+
+#### `setTelefono(String telefono)`
+
+```java
+public void setTelefono(String telefono)
+    throws IOException, ValoresNegativos, IllegalArgumentException
+```
+
+Validates that the phone number parses as a non-negative integer before saving.
+
+<ParamField path="telefono" type="String" required>
+  New phone number (must parse as a non-negative integer).
+</ParamField>
+
+| Throws | Condition |
+|--------|-----------|
+| `ValoresNegativos` | Parsed integer is negative. |
+| `IllegalArgumentException` | Value cannot be parsed as an integer. |
+| `IOException` | File write failure. |
+
+#### `setCorreo(String correo)`
+
+```java
+public void setCorreo(String correo) throws IOException, CorreoNoValido
+```
+
+Validates that the address contains `@` and ends with `nousacademy.co`.
+
+<ParamField path="correo" type="String" required>
+  New email address. Must end in `nousacademy.co`.
+</ParamField>
+
+| Throws | Condition |
+|--------|-----------|
+| `CorreoNoValido` | Address missing `@` or does not end with `nousacademy.co`. |
+| `IOException` | File write failure. |
+
+#### Array setters (in-memory only)
+
+These setters replace the entire internal array without touching the file system. They are intended for data-loading at startup.
+
+```java
+public void setUsuarios(Usuario[] usuarios)
+public void setEstudiantes(Estudiante[] estudiantes)
+public void setDocentes(Docente[] docentes)
+public void setReservas(Reserva[] reservas)
+public void setGrupos(Grupo[] grupos)
+```
+
+---
+
+## Search methods
+
+All search methods perform a linear scan and throw `ElementoNoExistente` when no match is found.
+
+### `buscarUnEstudiante`
+
+```java
+public Estudiante buscarUnEstudiante(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento
+) throws ElementoNoExistente
+```
+
+<ParamField path="tipoDocumento" type="TipoDocumento" required>
+  Document type enum (`CC`, `TARJETA_IDENTIDAD`, `CE`, `PASAPORTE`, `NIT`).
+</ParamField>
+
+<ParamField path="numeroDocumento" type="String" required>
+  Document number that identifies the student.
+</ParamField>
+
+### `buscarUnGrupo`
+
+```java
+public Grupo buscarUnGrupo(String codigo) throws ElementoNoExistente
+```
+
+<ParamField path="codigo" type="String" required>
+  Group code in `GRUP001` format.
+</ParamField>
+
+### `buscarUnaReserva`
+
+```java
+public Reserva buscarUnaReserva(String codigo) throws ElementoNoExistente
+```
+
+Searches by the reservation's underlying `Clase` code (e.g., `PB-001`, `PV-001`).
+
+<ParamField path="codigo" type="String" required>
+  Class code belonging to the reservation.
+</ParamField>
+
+### `buscarUnDocente`
+
+```java
+public Docente buscarUnDocente(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento
+) throws ElementoNoExistente
+```
+
+<ParamField path="tipoDocumento" type="TipoDocumento" required>
+  Document type of the teacher.
+</ParamField>
+
+<ParamField path="numeroDocumento" type="String" required>
+  Document number of the teacher.
+</ParamField>
+
+### `buscarUnUsuario`
+
+```java
+public Usuario buscarUnUsuario(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento
+) throws ElementoNoExistente
+```
+
+<ParamField path="tipoDocumento" type="TipoDocumento" required>
+  Document type of the administrator user.
+</ParamField>
+
+<ParamField path="numeroDocumento" type="String" required>
+  Document number of the administrator user.
+</ParamField>
+
+---
+
+## User management
+
+Methods for managing administrator (`Usuario`) accounts.
+
+### `crearUsuario`
+
+```java
+public void crearUsuario(
+    String nombre,
+    String apellidos,
+    String telefono,
+    String correo,
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    String usuario,
+    String contrasena
+) throws ElementosVacios, CorreoNoValido, NombreNoValido,
+         IOException, ValoresNegativos, LongitudNoValida, Duplicados
+```
+
+Creates a new administrator account. Checks for duplicate document/username before creation. Persists to `datos/<TD><doc>.usr`.
+
+<ParamField path="nombre" type="String" required>First name (≥ 2 characters).</ParamField>
+<ParamField path="apellidos" type="String" required>Last name (≥ 2 characters).</ParamField>
+<ParamField path="telefono" type="String" required>Phone number (≥ 5 digits, non-negative).</ParamField>
+<ParamField path="correo" type="String" required>Email ending in `nousacademy.co`.</ParamField>
+<ParamField path="tipoDocumento" type="TipoDocumento" required>Document type enum.</ParamField>
+<ParamField path="numeroDocumento" type="String" required>Document number (≥ 5 characters, non-negative).</ParamField>
+<ParamField path="usuario" type="String" required>Unique username.</ParamField>
+<ParamField path="contrasena" type="String" required>Password.</ParamField>
+
+| Throws | Condition |
+|--------|-----------|
+| `ElementosVacios` | Any field is empty. |
+| `CorreoNoValido` | Email format invalid. |
+| `NombreNoValido` | Name or surname shorter than 2 characters. |
+| `ValoresNegativos` | Phone or document number is negative. |
+| `LongitudNoValida` | Phone or document number shorter than 5 characters. |
+| `Duplicados` | Document or username already exists. |
+| `IOException` | File write failure. |
+
+### `eliminarUsuario`
+
+```java
+public void eliminarUsuario(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento
+) throws ElementoNoExistente
+```
+
+Removes the user from the collection and deletes the `.usr` file.
+
+<ParamField path="tipoDocumento" type="TipoDocumento" required>Document type of the user to delete.</ParamField>
+<ParamField path="numeroDocumento" type="String" required>Document number of the user to delete.</ParamField>
+
+### `actualizarUsuario`
+
+```java
+public void actualizarUsuario(
+    TipoDocumento originalTD,
+    String originalND,
+    String nombre,
+    String apellidos,
+    String telefono,
+    String correo,
+    TipoDocumento tipoDocumento,
+    String numeroDocumento
+) throws CorreoNoValido, NombreNoValido, ElementoNoExistente,
+         IOException, ValoresNegativos
+```
+
+Updates only non-empty fields. Deletes the old persistence file and writes a new one with the updated identity key.
+
+<ParamField path="originalTD" type="TipoDocumento" required>Original document type used to locate the record.</ParamField>
+<ParamField path="originalND" type="String" required>Original document number used to locate the record.</ParamField>
+<ParamField path="nombre" type="String">New first name. Pass empty string to skip.</ParamField>
+<ParamField path="apellidos" type="String">New last name. Pass empty string to skip.</ParamField>
+<ParamField path="telefono" type="String">New phone. Pass empty string to skip.</ParamField>
+<ParamField path="correo" type="String">New email. Pass empty string to skip.</ParamField>
+<ParamField path="tipoDocumento" type="TipoDocumento">New document type. Pass `null` to skip.</ParamField>
+<ParamField path="numeroDocumento" type="String">New document number. Pass empty string to skip.</ParamField>
+
+### `leerUsuarios`
+
+```java
+public Usuario[] leerUsuarios()
+```
+
+Returns a shallow clone of the internal `usuarios` array.
+
+---
+
+## Student management
+
+### `crearEstudiante`
+
+```java
+public void crearEstudiante(
+    String nombre,
+    String apellidos,
+    String telefono,
+    String correo,
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    String usuario,
+    String contrasena
+) throws ElementosVacios, CorreoNoValido, NombreNoValido,
+         IOException, ValoresNegativos, LongitudNoValida, Duplicados
+```
+
+Creates a new student account. Applies the same validation rules as `crearUsuario`. Persists to `datos/<TD><doc>.est`.
+
+<ParamField path="nombre" type="String" required>First name (≥ 2 characters).</ParamField>
+<ParamField path="apellidos" type="String" required>Last name (≥ 2 characters).</ParamField>
+<ParamField path="telefono" type="String" required>Phone number (≥ 5 digits, non-negative).</ParamField>
+<ParamField path="correo" type="String" required>Email ending in `nousacademy.co`.</ParamField>
+<ParamField path="tipoDocumento" type="TipoDocumento" required>Document type enum.</ParamField>
+<ParamField path="numeroDocumento" type="String" required>Document number (≥ 5 characters).</ParamField>
+<ParamField path="usuario" type="String" required>Unique username.</ParamField>
+<ParamField path="contrasena" type="String" required>Password.</ParamField>
+
+### `eliminarEstudiante`
+
+```java
+public void eliminarEstudiante(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento
+) throws ElementoNoExistente
+```
+
+Removes the student and deletes the `.est` file.
+
+### `actualizarEstudiante`
+
+```java
+public void actualizarEstudiante(
+    TipoDocumento originalTD,
+    String originalND,
+    String nombre,
+    String apellidos,
+    String telefono,
+    String correo,
+    TipoDocumento tipoDocumento,
+    String numeroDocumento
+) throws CorreoNoValido, NombreNoValido, ElementoNoExistente,
+         IOException, ValoresNegativos
+```
+
+Same partial-update semantics as `actualizarUsuario`. Re-persists to `.est`.
+
+### `leerEstudiantes`
+
+```java
+public Estudiante[] leerEstudiantes()
+```
+
+Returns a shallow clone of the `estudiantes` array.
+
+### `asignarMembresiaPersonalizada`
+
+```java
+public void asignarMembresiaPersonalizada(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    LocalDate fechaInicio,
+    double precio,
+    int clasesPrivadas,
+    int meses
+) throws ValoresNegativos, FechaInvalida, EstadoMembresiaInvalido,
+         ElementosVacios, ElementoNoExistente, IOException
+```
+
+Assigns a fully custom membership to the student. Adds `precio` to the academy capital.
+
+<ParamField path="tipoDocumento" type="TipoDocumento" required>Document type of the student.</ParamField>
+<ParamField path="numeroDocumento" type="String" required>Document number of the student.</ParamField>
+<ParamField path="fechaInicio" type="LocalDate" required>Start date (must not be in the past).</ParamField>
+<ParamField path="precio" type="double" required>Price in COP (must be > 0).</ParamField>
+<ParamField path="clasesPrivadas" type="int" required>Number of private classes included (≥ 0).</ParamField>
+<ParamField path="meses" type="int" required>Membership duration in months (> 0).</ParamField>
+
+### `asignarMembresiaDefinida`
+
+```java
+public void asignarMembresiaDefinida(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    TipoMembresia tipo,
+    LocalDate fechaInicio,
+    int meses
+) throws FechaInvalida, ValoresNegativos, TipoMembresiaInvalida,
+         EstadoMembresiaInvalido, ElementoNoExistente, IOException
+```
+
+Assigns a pre-defined membership plan to the student. Pricing is determined by `tipo`.
+
+<ParamField path="tipoDocumento" type="TipoDocumento" required>Document type of the student.</ParamField>
+<ParamField path="numeroDocumento" type="String" required>Document number of the student.</ParamField>
+<ParamField path="tipo" type="TipoMembresia" required>Plan: `BASICA`, `INTENSIVA`, or `PREMIUM` (not `PERSONALIZADA`).</ParamField>
+<ParamField path="fechaInicio" type="LocalDate" required>Start date (must not be in the past).</ParamField>
+<ParamField path="meses" type="int" required>Duration in months (> 0).</ParamField>
+
+### `actualizarEstadoMembresia`
+
+```java
+public void actualizarEstadoMembresia(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    EstadoMembresia estado
+) throws ElementoNoExistente, EstadoMembresiaInvalido, IOException
+```
+
+Changes the membership status of a student's active membership.
+
+<ParamField path="estado" type="EstadoMembresia" required>`CANCELADA`, `SUSPENDIDA`, or `EN_PROGRESO`.</ParamField>
+
+### `entrarGrupo`
+
+```java
+public void entrarGrupo(
+    Estudiante estudiante,
+    String codigo
+) throws ElementoNoExistente, CantidadGruposExcedida, IOException, Duplicados
+```
+
+Enrols the logged-in student in the specified group. A student may belong to at most **4** groups.
+
+<ParamField path="estudiante" type="Estudiante" required>The logged-in student object.</ParamField>
+<ParamField path="codigo" type="String" required>Group code (e.g., `GRUP001`).</ParamField>
+
+| Throws | Condition |
+|--------|-----------|
+| `ElementoNoExistente` | Group code not found. |
+| `CantidadGruposExcedida` | Student is already in 4 groups. |
+| `Duplicados` | Student is already in this group. |
+
+### `salirseGrupo`
+
+```java
+public void salirseGrupo(
+    Estudiante estudiante,
+    String codigo
+) throws ElementoNoExistente, GrupoNoEncontrado, EstudianteNoEnGrupo, IOException
+```
+
+Removes the logged-in student from the specified group.
+
+<ParamField path="estudiante" type="Estudiante" required>The logged-in student object.</ParamField>
+<ParamField path="codigo" type="String" required>Group code to leave.</ParamField>
+
+### `reservarClase`
+
+```java
+public void reservarClase(
+    Estudiante estudiante,
+    String codigo
+) throws ElementoNoExistente, ClasesPrivadasNoSuficientes,
+         ClaseYaReservada, ClaseLlena, IOException
+```
+
+Enrols the student in an existing reservation. For `ClasePersonalizada`, deducts one private class credit from the student's membership.
+
+<ParamField path="estudiante" type="Estudiante" required>The logged-in student object.</ParamField>
+<ParamField path="codigo" type="String" required>Class code of the reservation (e.g., `PB-001`).</ParamField>
+
+| Throws | Condition |
+|--------|-----------|
+| `ClasesPrivadasNoSuficientes` | No private class credits remain (personalized class). |
+| `ClaseYaReservada` | Student already has an active reservation. |
+| `ClaseLlena` | Reservation has reached its maximum capacity. |
+
+### `cancelarResrva`
+
+```java
+public void cancelarResrva(
+    Estudiante estudiante,
+    String codigo
+) throws ElementoNoExistente, EstudianteNoEnlistadoEnReserva,
+         ClaseEnEstadoNoCancelar, ClaseNoEnEstudiante, IOException
+```
+
+Cancels the student's enrollment in a reservation. Cannot be called less than 30 minutes before the scheduled start time.
+
+<ParamField path="estudiante" type="Estudiante" required>The logged-in student object.</ParamField>
+<ParamField path="codigo" type="String" required>Class code of the reservation to cancel.</ParamField>
+
+| Throws | Condition |
+|--------|-----------|
+| `EstudianteNoEnlistadoEnReserva` | Student is not in this reservation. |
+| `ClaseEnEstadoNoCancelar` | Fewer than 30 minutes remain before start. |
+| `ClaseNoEnEstudiante` | Class not found in student's history. |
+
+---
+
+## Teacher management
+
+### `crearDocente`
+
+```java
+public void crearDocente(
+    String nombre,
+    String apellidos,
+    String telefono,
+    String correo,
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    String usuario,
+    String contrasena,
+    String especialidad
+) throws ElementosVacios, CorreoNoValido, NombreNoValido,
+         IOException, ValoresNegativos, LongitudNoValida, Duplicados
+```
+
+Creates a new teacher account. Persists to `datos/<TD><doc>.doce`.
+
+<ParamField path="especialidad" type="String" required>Teaching specialty (must not be empty).</ParamField>
+
+<Note>All other parameters follow the same validation rules as `crearEstudiante`.</Note>
+
+### `actualizarDocente`
+
+```java
+public void actualizarDocente(
+    TipoDocumento originalTD,
+    String originalND,
+    String nombre,
+    String apellidos,
+    String telefono,
+    String correo,
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    String especialidad
+) throws CorreoNoValido, NombreNoValido, ElementoNoExistente,
+         IOException, ValoresNegativos
+```
+
+Updates only non-empty / non-null fields. Re-persists the `.doce` file.
+
+<ParamField path="especialidad" type="String">New specialty. Pass empty string to skip.</ParamField>
+
+### `eliminarDocente(TipoDocumento, String)`
+
+```java
+public void eliminarDocente(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento
+) throws ElementoNoExistente
+```
+
+Removes the teacher from the collection and deletes the `.doce` file.
+
+### `leerDocentes`
+
+```java
+public Docente[] leerDocentes()
+```
+
+Returns a shallow clone of the `docentes` array.
+
+### `asignarContrato`
+
+```java
+public void asignarContrato(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    LocalDate fechaInicio,
+    double salarioBase,
+    double horasMinimas,
+    double costoHoraA,
+    int meses
+) throws ElementoNoExistente, FechaInvalida, ValoresNegativos,
+         EstadoContratoInvalido, DineroInsuficienteParaContratar, IOException
+```
+
+Assigns a new contract to a teacher. Pre-validates that the academy has enough capital (`capital ≥ salarioBase × meses`). Subtracts the contract cost from capital via `impactoComercial()`.
+
+<ParamField path="fechaInicio" type="LocalDate" required>Contract start date (must not be in the past).</ParamField>
+<ParamField path="salarioBase" type="double" required>Monthly base salary in COP (> 0).</ParamField>
+<ParamField path="horasMinimas" type="double" required>Minimum contracted hours per month (≥ 0).</ParamField>
+<ParamField path="costoHoraA" type="double" required>Cost per additional private hour (≥ 0).</ParamField>
+<ParamField path="meses" type="int" required>Contract duration in months (> 0).</ParamField>
+
+| Throws | Condition |
+|--------|-----------|
+| `DineroInsuficienteParaContratar` | `capital < salarioBase × meses`. |
+| `FechaInvalida` | Start date is in the past. |
+| `ValoresNegativos` | Any numeric value violates its constraint. |
+
+### `actualizarEstadoContratoDocente`
+
+```java
+public void actualizarEstadoContratoDocente(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    EstadoContrato estdo
+) throws EstadoContratoInvalido, ElementosVacios, ElementoNoExistente, IOException
+```
+
+Changes the contract state for the teacher. Passing `FINALIZADO` nullifies the active contract reference on the `Docente`.
+
+<ParamField path="estdo" type="EstadoContrato" required>`ACTIVO`, `SUSPENDIDO`, or `FINALIZADO`.</ParamField>
+
+### `asignarClase`
+
+```java
+public void asignarClase(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    String codigo
+) throws ElementoNoExistente, IOException
+```
+
+Links a teacher to a reservation. Sets `EstadoDocente.ACEPTADA` and adds the reservation to the teacher's history.
+
+<ParamField path="codigo" type="String" required>Class code of the reservation to assign.</ParamField>
+
+### `cancelarDocente`
+
+```java
+public void cancelarDocente(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    String codigo
+) throws ElementoNoExistente, NingunDocenteAsignado, ReservaNoEnDocente, IOException
+```
+
+Unlinks the teacher from a reservation. Sets `EstadoDocente.EN_ESPERA`.
+
+<ParamField path="codigo" type="String" required>Class code of the reservation to unlink from.</ParamField>
+
+| Throws | Condition |
+|--------|-----------|
+| `NingunDocenteAsignado` | No teacher is currently assigned to the reservation. |
+| `ReservaNoEnDocente` | The reservation is not in the teacher's history. |
+
+---
+
+## Reservation management
+
+### `crearUnaReservaGrupal`
+
+```java
+public void crearUnaReservaGrupal(
+    LocalDateTime horaInicioEsperada,
+    String titulo,
+    String descripcion,
+    String tema,
+    float duracion,
+    int aforoMin,
+    int aforoMax
+) throws ElementosVacios, AforoIncompatible, IOException,
+         FechaInvalida, ValoresNegativos
+```
+
+Creates a group class reservation. Persists to `datos/<codigo>.res`.
+
+<ParamField path="horaInicioEsperada" type="LocalDateTime" required>Scheduled start time (must be in the future).</ParamField>
+<ParamField path="titulo" type="String" required>Class title.</ParamField>
+<ParamField path="descripcion" type="String" required>Class description.</ParamField>
+<ParamField path="tema" type="String" required>Topic of the class.</ParamField>
+<ParamField path="duracion" type="float" required>Expected duration in minutes (> 0).</ParamField>
+<ParamField path="aforoMin" type="int" required>Minimum number of students required to start (≥ 0).</ParamField>
+<ParamField path="aforoMax" type="int" required>Maximum capacity (must be ≥ `aforoMin`).</ParamField>
+
+| Throws | Condition |
+|--------|-----------|
+| `AforoIncompatible` | `aforoMax < aforoMin`. |
+| `FechaInvalida` | Start time is in the past. |
+| `ValoresNegativos` | Any numeric value is negative. |
+
+### `crearUnaReservaPersonalizada`
+
+```java
+public void crearUnaReservaPersonalizada(
+    Estudiante estudiante,
+    LocalDateTime horaInicioEsperada,
+    String titulo,
+    String descripcion,
+    String tema,
+    float duracion,
+    String info
+) throws ElementosVacios, ClasesPrivadasNoSuficientes, ClaseYaReservada,
+         ClaseLlena, IOException, FechaInvalida, ValoresNegativos
+```
+
+Creates a personalized (private) class reservation and immediately enrols the requesting student, consuming one private class credit.
+
+<ParamField path="estudiante" type="Estudiante" required>The logged-in student requesting the private class.</ParamField>
+<ParamField path="info" type="String">Additional information or notes attached to the private class (may be empty).</ParamField>
+
+### `eliminarReserva(String)`
+
+```java
+public void eliminarReserva(String codigo) throws ElementoNoExistente
+```
+
+Administratively cancels a reservation: calls `cancelacionAdministrativa()` on the reservation (sets state to `CANCELADA` and frees all enrolled students), then deletes the `.res` file.
+
+<ParamField path="codigo" type="String" required>Class code of the reservation to delete.</ParamField>
+
+### `leerReservas`
+
+```java
+public Reserva[] leerReservas()
+```
+
+Returns a shallow clone of the `reservas` array.
+
+### `inciarReserva`
+
+```java
+public void inciarReserva(
+    Docente docente,
+    String codigo
+) throws ElementoNoExistente, DocenteRetardado,
+         ClaseEnEstadoNoIniciar, NoSuficienteAforo, IOException
+```
+
+Starts a reservation. The window for starting is **5 minutes before** to **10 minutes after** the scheduled time. Starting after 10 minutes marks the reservation as `TARDE` and throws `DocenteRetardado`.
+
+<ParamField path="docente" type="Docente" required>The logged-in teacher triggering the start.</ParamField>
+<ParamField path="codigo" type="String" required>Class code to start.</ParamField>
+
+| Throws | Condition |
+|--------|-----------|
+| `DocenteRetardado` | Start attempted more than 10 minutes past schedule. |
+| `ClaseEnEstadoNoIniciar` | Start attempted more than 5 minutes before schedule. |
+| `NoSuficienteAforo` | Enrolled students < `aforoMinimo` (group classes only). |
+
+### `finalizarReserva`
+
+```java
+public void finalizarReserva(
+    Docente docente,
+    String codigo
+) throws ElementoNoExistente, ClaseNuncaIniciada,
+         FinalizacionPrematuraDeReserva, IOException
+```
+
+Ends an in-progress reservation. If the real duration is more than 25 minutes short of the expected duration, the state is set to `PREMATURA` and `FinalizacionPrematuraDeReserva` is thrown.
+
+<ParamField path="docente" type="Docente" required>The logged-in teacher triggering the finish.</ParamField>
+
+| Throws | Condition |
+|--------|-----------|
+| `ClaseNuncaIniciada` | Reservation state is not `EN_CURSO`. |
+| `FinalizacionPrematuraDeReserva` | Ended more than 25 minutes early. |
+
+### `calificarReserva`
+
+```java
+public void calificarReserva(
+    Estudiante estudiante,
+    float calificacion,
+    String codigo
+) throws ElementoNoExistente, ClaseEnEstadoNOCalificar,
+         EstudianteNoEnlistadoEnReserva, IOException, CalificacionInvalida
+```
+
+Allows a student to rate a completed reservation. Rating must be **1–5**. Only students in the `asistentes` (attendees) array may rate.
+
+<ParamField path="estudiante" type="Estudiante" required>The logged-in student submitting the rating.</ParamField>
+<ParamField path="calificacion" type="float" required>Rating value between 1 and 5 (inclusive).</ParamField>
+<ParamField path="codigo" type="String" required>Class code to rate.</ParamField>
+
+| Throws | Condition |
+|--------|-----------|
+| `ClaseEnEstadoNOCalificar` | State is not `EXITOSA`, `PREMATURA`, or `TARDE`. |
+| `EstudianteNoEnlistadoEnReserva` | Student not in the attendees list. |
+| `CalificacionInvalida` | Rating outside the 1–5 range. |
+
+### `unirseReserva`
+
+```java
+public void unirseReserva(
+    Estudiante estudiante,
+    String codigo
+) throws ElementoNoExistente, ClaseEnEstadoNoUnirse,
+         EstudianteNoEnlistadoEnReserva, IOException
+```
+
+Marks the student as present (adds to `asistentes`) during an active (`EN_CURSO`) reservation.
+
+<ParamField path="estudiante" type="Estudiante" required>The logged-in student joining the live class.</ParamField>
+<ParamField path="codigo" type="String" required>Class code of the active reservation.</ParamField>
+
+| Throws | Condition |
+|--------|-----------|
+| `ClaseEnEstadoNoUnirse` | Reservation is not `EN_CURSO`. |
+| `EstudianteNoEnlistadoEnReserva` | Student is not enrolled in the reservation. |
+
+---
+
+## Group management
+
+### `crearGrupo`
+
+```java
+public void crearGrupo(
+    String nombre,
+    String descripcion
+) throws ElementosVacios, IOException
+```
+
+Creates a new group. Code is auto-generated as `GRUP001`, `GRUP002`, … Persists to `datos/<codigo>.grp`.
+
+<ParamField path="nombre" type="String" required>Group name (must not be empty).</ParamField>
+<ParamField path="descripcion" type="String" required>Group description (must not be empty).</ParamField>
+
+### `actualizarGrupo`
+
+```java
+public void actualizarGrupo(
+    String codigo,
+    String nombre,
+    String descripcion
+) throws ElementoNoExistente, IOException
+```
+
+Updates non-empty fields of the group and re-persists.
+
+<ParamField path="codigo" type="String" required>Code of the group to update.</ParamField>
+<ParamField path="nombre" type="String">New name. Pass empty string to skip.</ParamField>
+<ParamField path="descripcion" type="String">New description. Pass empty string to skip.</ParamField>
+
+### `eliminarGrupo`
+
+```java
+public void eliminarGrupo(String codigo)
+    throws ElementoNoExistente, GrupoNoEncontrado
+```
+
+Triggers `eliminacionAdministrativa()` on the group (removes it from every enrolled student), deletes the `.grp` file, and removes it from the collection.
+
+<ParamField path="codigo" type="String" required>Code of the group to delete.</ParamField>
+
+### `leerGrupos`
+
+```java
+public Grupo[] leerGrupos()
+```
+
+Returns a shallow clone of the `grupos` array.
+
+### `añadirDocente`
+
+```java
+public void añadirDocente(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    String codigo
+) throws ElementoNoExistente, IOException
+```
+
+Adds a teacher to a group.
+
+<ParamField path="codigo" type="String" required>Group code to add the teacher to.</ParamField>
+
+### `anadirReserva`
+
+```java
+public void anadirReserva(
+    String codigoGrupo,
+    String codigoReserva
+) throws ElementoNoExistente, IOException
+```
+
+Links a reservation to a group.
+
+<ParamField path="codigoGrupo" type="String" required>Group code.</ParamField>
+<ParamField path="codigoReserva" type="String" required>Class code of the reservation to add.</ParamField>
+
+### `eliminarReserva(String, String)`
+
+```java
+public void eliminarReserva(
+    String codigoGrupo,
+    String codigoReserva
+) throws ElementoNoExistente, ReservaNoEncontradaEnGrupo, IOException
+```
+
+Unlinks a reservation from a group (does **not** delete the reservation from the academy).
+
+<ParamField path="codigoGrupo" type="String" required>Group code.</ParamField>
+<ParamField path="codigoReserva" type="String" required>Class code of the reservation to unlink.</ParamField>
+
+| Throws | Condition |
+|--------|-----------|
+| `ReservaNoEncontradaEnGrupo` | Reservation is not in the group's list. |
+
+### `eliminarDocente(TipoDocumento, String, String)`
+
+```java
+public void eliminarDocente(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    String codigo
+) throws ElementoNoExistente, DocenteNoEnGrupo, IOException
+```
+
+Removes a teacher from a group.
+
+<ParamField path="codigo" type="String" required>Group code to remove the teacher from.</ParamField>
+
+| Throws | Condition |
+|--------|-----------|
+| `DocenteNoEnGrupo` | Teacher is not in this group. |
+
+---
+
+## Capital
+
+### `inyectarCapital`
+
+```java
+public void inyectarCapital(float capital)
+    throws ValoresNegativos, IOException
+```
+
+Adds funds to the academy balance. Rewrites `datos/NousAcademy.txt`.
+
+<ParamField path="capital" type="float" required>Amount to add (must be ≥ 0).</ParamField>
+
+| Throws | Condition |
+|--------|-----------|
+| `ValoresNegativos` | Amount is negative. |
+
+### `retirarCapital`
+
+```java
+public void retirarCapital(float capital)
+    throws ValoresNegativos, IOException, ImposibleRetirar
+```
+
+Deducts funds from the academy balance.
+
+<ParamField path="capital" type="float" required>Amount to deduct (must be ≥ 0).</ParamField>
+
+| Throws | Condition |
+|--------|-----------|
+| `ValoresNegativos` | Amount is negative. |
+| `ImposibleRetirar` | Current balance is less than the amount requested. |

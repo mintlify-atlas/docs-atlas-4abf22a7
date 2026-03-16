@@ -1,0 +1,253 @@
+---
+title: Clase (model)
+description: Abstract base class for all NOUS ACADEMY class types. Defines the common fields and code-generation contract shared by ClaseGrupal and ClasePersonalizada.
+---
+
+## Overview
+
+`Clase` is the abstract, serializable root of the class hierarchy. It cannot be instantiated directly — you must use one of its two concrete subclasses.
+
+```
+Clase  (abstract)
+├── ClaseGrupal        — group class, suffix PB
+└── ClasePersonalizada — private class, suffix PV
+```
+
+```java
+package com.nousacademy.modelo;
+
+public abstract class Clase implements Serializable { ... }
+```
+
+---
+
+## Fields
+
+<ResponseField name="codigo" type="String">
+  Auto-generated unique identifier. Format depends on the subclass:
+  - `ClaseGrupal` → `PB-001`, `PB-002`, …
+  - `ClasePersonalizada` → `PV-001`, `PV-002`, …
+</ResponseField>
+
+<ResponseField name="titulo" type="String">
+  Short title of the class.
+</ResponseField>
+
+<ResponseField name="descripcion" type="String">
+  Detailed description of what will be taught.
+</ResponseField>
+
+<ResponseField name="tema" type="String">
+  Subject or topic area of the class.
+</ResponseField>
+
+<ResponseField name="duracion" type="float">
+  Expected duration of the class **in minutes**.
+</ResponseField>
+
+---
+
+## Constructor
+
+```java
+public Clase(
+    String titulo,
+    String descripcion,
+    String tema,
+    float duracion,
+    String sufijo
+) throws ElementosVacios
+```
+
+Called by subclass constructors via `super(...)`. Validates that no field is empty or zero, then delegates code generation to the subclass implementation of `generarCodigo`.
+
+<ParamField path="titulo" type="String" required>Class title (must not be empty).</ParamField>
+<ParamField path="descripcion" type="String" required>Class description (must not be empty).</ParamField>
+<ParamField path="tema" type="String" required>Topic area (must not be empty).</ParamField>
+<ParamField path="duracion" type="float" required>Duration in minutes (must be > 0).</ParamField>
+<ParamField path="sufijo" type="String" required>Code suffix injected by the subclass (`"PB"` or `"PV"`).</ParamField>
+
+<Warning>
+`ElementosVacios` is thrown if any of the five parameters is empty / zero.
+</Warning>
+
+---
+
+## Abstract method
+
+### `generarCodigo`
+
+```java
+public abstract String generarCodigo(String sufijo);
+```
+
+Each concrete subclass maintains its own static counter and produces the code in `<sufijo>-<NNN>` format. The counter increments on every call, so codes are globally sequential within each type.
+
+<ParamField path="sufijo" type="String" required>
+  Code prefix: `"PB"` for group classes, `"PV"` for personalized classes.
+</ParamField>
+
+---
+
+## Getters and setters
+
+| Method | Type | Description |
+|--------|------|-------------|
+| `getCodigo()` | `String` | Returns the generated code. |
+| `setCodigo(String)` | `void` | Overrides the code (use with care). |
+| `getTitulo()` | `String` | Returns the class title. |
+| `setTitulo(String)` | `void` | Updates the title. |
+| `getDescripcion()` | `String` | Returns the description. |
+| `setDescripcion(String)` | `void` | Updates the description. |
+| `getTema()` | `String` | Returns the topic. |
+| `setTema(String)` | `void` | Updates the topic. |
+| `getDuracion()` | `float` | Returns duration in minutes. |
+| `setDuracion(float)` | `void` | Updates duration. |
+
+---
+
+## ClaseGrupal
+
+`ClaseGrupal` represents a group class open to multiple students up to a defined capacity.
+
+```java
+package com.nousacademy.modelo;
+
+public class ClaseGrupal extends Clase implements Serializable { ... }
+```
+
+### Additional fields
+
+<ResponseField name="aforoMinimo" type="int">
+  Minimum number of enrolled students required before the class can start.
+</ResponseField>
+
+<ResponseField name="aforoMaximo" type="int">
+  Maximum number of students that can enrol. When reached, the reservation state becomes `LLENA`.
+</ResponseField>
+
+<ResponseField name="aforoActual" type="int">
+  Current number of enrolled students. Starts at `0`.
+</ResponseField>
+
+### Constructor
+
+```java
+public ClaseGrupal(
+    String titulo,
+    String descripcion,
+    String tema,
+    float duracion,
+    int aforoMinimo,
+    int aforoMaximo
+) throws ElementosVacios, AforoIncompatible
+```
+
+<ParamField path="aforoMinimo" type="int" required>Minimum required attendees (≥ 0).</ParamField>
+<ParamField path="aforoMaximo" type="int" required>Maximum allowed attendees (must be ≥ `aforoMinimo`).</ParamField>
+
+| Throws | Condition |
+|--------|-----------|
+| `ElementosVacios` | Base class validation fails. |
+| `AforoIncompatible` | `aforoMaximo < aforoMinimo`. |
+
+### Code format
+
+Uses the suffix `"PB"` and a static counter shared across all `ClaseGrupal` instances:
+
+```
+PB-001, PB-002, PB-003, …
+```
+
+### Business methods
+
+#### `actualizarAforo(int nuevoAforo)`
+
+```java
+public void actualizarAforo(int nuevoAforo) throws ValoresNegativos
+```
+
+Sets `aforoActual` to the new value. Throws `ValoresNegativos` if the value is negative or greater than `aforoMaximo`.
+
+#### `cumpleAforoMinimo()`
+
+```java
+public boolean cumpleAforoMinimo()
+```
+
+Returns `true` if `aforoActual >= aforoMinimo`. Used by `Reserva.iniciarClase()` before starting a group class.
+
+#### `copiarFicheroClaseGrupal(String dir)`
+
+```java
+public void copiarFicheroClaseGrupal(String dir) throws IOException
+```
+
+Serializes the instance to the given file path using `ObjectOutputStream`.
+
+---
+
+## ClasePersonalizada
+
+`ClasePersonalizada` represents a private one-on-one class. It immediately becomes `LLENA` once one student enrols.
+
+```java
+package com.nousacademy.modelo;
+
+public class ClasePersonalizada extends Clase implements Serializable { ... }
+```
+
+### Additional field
+
+<ResponseField name="informacionAdjunta" type="String">
+  Free-form notes or requirements attached to the private class. May be empty.
+</ResponseField>
+
+### Constructor
+
+```java
+public ClasePersonalizada(
+    String titulo,
+    String descripcion,
+    String tema,
+    float duracion,
+    String informacionAdjunta
+) throws ElementosVacios
+```
+
+<ParamField path="informacionAdjunta" type="String">Optional additional information for the private class (may be empty).</ParamField>
+
+### Code format
+
+Uses the suffix `"PV"` and its own static counter:
+
+```
+PV-001, PV-002, PV-003, …
+```
+
+### Getters and setters
+
+| Method | Type | Description |
+|--------|------|-------------|
+| `getInformacionAdjunta()` | `String` | Returns the attached notes. |
+| `setInformacionAdjunta(String)` | `void` | Updates the attached notes. |
+
+### `copiarFicheroClasePersonalizada(String dir)`
+
+```java
+public void copiarFicheroClasePersonalizada(String dir) throws IOException
+```
+
+Serializes the instance to the given file path.
+
+---
+
+## Serialization
+
+Both classes implement `java.io.Serializable`. The `serialVersionUID` constants are:
+
+| Class | `serialVersionUID` |
+|-------|--------------------|
+| `Clase` | `725346738L` |
+| `ClaseGrupal` | `-529805420994L` |
+| `ClasePersonalizada` | `59788931749L` |

@@ -1,0 +1,251 @@
+---
+title: Administrator
+description: Full reference for the Administrator role in NOUS ACADEMY — user model, validation rules, and all available operations.
+---
+
+The **Administrator** is the highest-privilege role in NOUS ACADEMY. An administrator account is represented by the `Usuario` class and has exclusive access to the `AdminFrame` dashboard, which exposes every management operation the application supports.
+
+## User model
+
+Every account in NOUS ACADEMY — including administrators — is an instance of `Usuario`. Administrators are identified by the `TipoUsuario.ADMINISTRADOR` enum value, which is set automatically at construction time.
+
+```java
+public class Usuario implements Serializable {
+    protected String nombre;          // First name (min 2 characters)
+    protected String apellidos;       // Last name(s) (min 2 characters)
+    protected String telefono;        // Phone number (≥ 5 digits, non-negative)
+    protected String correo;          // Institutional email
+    protected TipoDocumento tipoDocumento;
+    protected String numeroDocumento; // Document number (≥ 5 digits, non-negative)
+    protected String usuario;         // Login username
+    protected String contrasena;      // Password
+    protected TipoUsuario tipoUsuario; // Set to ADMINISTRADOR on construction
+}
+```
+
+### Field validation rules
+
+| Field | Rule | Exception thrown |
+|---|---|---|
+| `nombre` | Minimum 2 characters, cannot be empty | `NombreNoValido` / `ElementosVacios` |
+| `apellidos` | Minimum 2 characters, cannot be empty | `NombreNoValido` / `ElementosVacios` |
+| `telefono` | At least 5 digits, value must be non-negative | `LongitudNoValida` / `ValoresNegativos` |
+| `correo` | Must contain `@` and end with `nousacademy.co` | `CorreoNoValido` |
+| `tipoDocumento` | One of the `TipoDocumento` enum values | — |
+| `numeroDocumento` | At least 5 digits, value must be non-negative | `LongitudNoValida` / `ValoresNegativos` |
+| `usuario` | Cannot be empty | `ElementosVacios` |
+| `contrasena` | Cannot be empty | `ElementosVacios` |
+
+### Email validation
+
+<Warning>
+All user emails must contain the `@` character **and** end with `nousacademy.co`. Any other domain is rejected with `CorreoNoValido`.
+
+```java
+if (!correo.contains("@") || !correo.endsWith("nousacademy.co")) {
+    throw new CorreoNoValido();
+}
+```
+</Warning>
+
+### Accepted document types
+
+The `TipoDocumento` enum lists the five accepted identification document types:
+
+```java
+public enum TipoDocumento {
+    CC,                // Cédula de Ciudadanía
+    TARJETA_IDENTIDAD, // Tarjeta de Identidad
+    CE,                // Cédula de Extranjería
+    PASAPORTE,
+    NIT
+}
+```
+
+### User type enum
+
+```java
+public enum TipoUsuario {
+    DOCENTE,
+    ESTUDIANTE,
+    ADMINISTRADOR
+}
+```
+
+## AdminFrame — tabbed interface
+
+After a successful login as an administrator, the application opens `AdminFrame`. The window is titled **NOUS ACADEMY — Administrador** and contains a `JTabbedPane` with six sections:
+
+<CardGroup cols={2}>
+  <Card title="Datos generales" icon="building">
+    Displays and edits the academy's own information: NIT, name, phone number, institutional email, and current capital balance. Capital can also be injected or withdrawn from this panel.
+  </Card>
+  <Card title="Usuarios Administradores" icon="user-shield">
+    Full CRUD for administrator accounts. Duplicate usernames and document numbers are rejected with `Duplicados`.
+  </Card>
+  <Card title="Estudiantes" icon="graduation-cap">
+    Full CRUD for student accounts. Also exposes membership assignment (predefined and custom) and membership-state updates.
+  </Card>
+  <Card title="Docentes" icon="chalkboard-teacher">
+    Full CRUD for teacher accounts. Contract creation, contract-state updates, and class assignment to teachers are all managed here.
+  </Card>
+  <Card title="Reservas" icon="calendar-check">
+    Create and delete group-class reservations (`ClaseGrupal`). Assign or remove a teacher from a reservation. Administrative cancellation sets the reservation state to `CANCELADA` immediately.
+  </Card>
+  <Card title="Grupos" icon="users">
+    Full CRUD for groups. Add or remove teachers and reservations from a group.
+  </Card>
+</CardGroup>
+
+## Operations reference
+
+All operations are executed through `AcademiaController`. The administrator is the only role with access to the following methods.
+
+<AccordionGroup>
+  <Accordion title="Administrator user management">
+    <Steps>
+      <Step title="Create an administrator">
+        `crearUsuario(nombre, apellidos, telefono, correo, tipoDocumento, numeroDocumento, usuario, contrasena)`
+
+        Creates a new `Usuario` with `TipoUsuario.ADMINISTRADOR`. Checks for duplicates on both the document and the username before persisting.
+
+        Persisted to `datos/<docType><docNumber>.usr`.
+      </Step>
+      <Step title="Update an administrator">
+        `actualizarUsuario(originalTD, originalND, nombre, apellidos, telefono, correo, tipoDocumento, numeroDocumento)`
+
+        Only fields that are non-empty/non-null are updated. The old `.usr` file is deleted and a new one is written with the updated identifiers.
+      </Step>
+      <Step title="Delete an administrator">
+        `eliminarUsuario(tipoDocumento, numeroDocumento)`
+
+        Removes the administrator from the in-memory array and deletes the corresponding `.usr` file. Throws `ElementoNoExistente` if not found.
+      </Step>
+    </Steps>
+  </Accordion>
+
+  <Accordion title="Student management">
+    <Steps>
+      <Step title="Create a student">
+        `crearEstudiante(nombre, apellidos, telefono, correo, tipoDocumento, numeroDocumento, usuario, contrasena)`
+
+        Instantiates a `Estudiante` (type `ESTUDIANTE`). Persisted to `.est`.
+      </Step>
+      <Step title="Update a student">
+        `actualizarEstudiante(originalTD, originalND, nombre, apellidos, telefono, correo, tipoDocumento, numeroDocumento)`
+      </Step>
+      <Step title="Delete a student">
+        `eliminarEstudiante(tipoDocumento, numeroDocumento)` — removes from memory and deletes the `.est` file.
+      </Step>
+    </Steps>
+  </Accordion>
+
+  <Accordion title="Teacher management">
+    <Steps>
+      <Step title="Create a teacher">
+        `crearDocente(nombre, apellidos, telefono, correo, tipoDocumento, numeroDocumento, usuario, contrasena, especialidad)`
+
+        Instantiates a `Docente` (type `DOCENTE`). The `especialidad` field is required and cannot be empty. Persisted to `.doce`.
+      </Step>
+      <Step title="Update a teacher">
+        `actualizarDocente(originalTD, originalND, nombre, apellidos, telefono, correo, tipoDocumento, numeroDocumento, especialidad)`
+      </Step>
+      <Step title="Delete a teacher">
+        `eliminarDocente(tipoDocumento, numeroDocumento)` — removes from memory and deletes the `.doce` file.
+      </Step>
+    </Steps>
+  </Accordion>
+
+  <Accordion title="Membership assignment">
+    Two overloads are available depending on whether the membership follows a predefined plan or a custom configuration.
+
+    **Predefined membership** — `asignarMembresiaDefinida(tipoDocumento, numeroDocumento, tipo, fechaInicio, meses)`
+
+    Accepted `TipoMembresia` values: `BASICA`, `INTENSIVA`, `PREMIUM`, `PERSONALIZADA`.
+
+    **Custom membership** — `asignarMembresiaPersonalizada(tipoDocumento, numeroDocumento, fechaInicio, precio, clasesPrivadas, meses)`
+
+    In both cases the membership's `impactoComercial()` is added to the academy's capital balance immediately and the `.est` file is updated.
+
+    <Note>
+    If the student already has an active membership it is automatically set to `EstadoMembresia.CANCELADA` before the new one is created.
+    </Note>
+
+    The administrator can also update the membership state directly via `actualizarEstadoMembresia(tipoDocumento, numeroDocumento, estado)`. Valid states are `CANCELADA`, `SUSPENDIDA`, and `EN_PROGRESO`.
+  </Accordion>
+
+  <Accordion title="Contract assignment">
+    `asignarContrato(tipoDocumento, numeroDocumento, fechaInicio, salarioBase, horasMinimas, costoHoraA, meses)`
+
+    Before creating the contract the controller verifies that `capital >= salarioBase * meses`. If insufficient, `DineroInsuficienteParaContratar` is thrown.
+
+    The contract's `impactoComercial()` (a negative value equal to `−salarioBase * meses`) is applied to the academy's capital.
+
+    Contract state can be updated via `actualizarEstadoContratoDocente(tipoDocumento, numeroDocumento, estado)`. See the [Teacher role](/roles/teacher) page for the full contract state machine.
+  </Accordion>
+
+  <Accordion title="Group management">
+    <Steps>
+      <Step title="Create a group">
+        `crearGrupo(nombre, descripcion)` — persisted to `<codigo>.grp`.
+      </Step>
+      <Step title="Update a group">
+        `actualizarGrupo(codigo, nombre, descripcion)` — only non-empty fields are applied.
+      </Step>
+      <Step title="Delete a group">
+        `eliminarGrupo(codigo)` — calls `eliminacionAdministrativa()` on the group before removing it from memory and deleting the `.grp` file.
+      </Step>
+      <Step title="Assign a teacher to a group">
+        `añadirDocente(tipoDocumento, numeroDocumento, codigoGrupo)`
+      </Step>
+      <Step title="Remove a teacher from a group">
+        `eliminarDocente(tipoDocumento, numeroDocumento, codigoGrupo)`
+      </Step>
+      <Step title="Assign a reservation to a group">
+        `anadirReserva(codigoGrupo, codigoReserva)`
+      </Step>
+      <Step title="Remove a reservation from a group">
+        `eliminarReserva(codigoGrupo, codigoReserva)`
+      </Step>
+    </Steps>
+  </Accordion>
+
+  <Accordion title="Reservation management">
+    **Create a group-class reservation:**
+    `crearUnaReservaGrupal(horaInicioEsperada, titulo, descripcion, tema, duracion, aforoMin, aforoMax)`
+
+    Aforo values and duration must be non-negative. The start time must be in the future.
+
+    **Delete a reservation:**
+    `eliminarReserva(codigo)` — calls `cancelacionAdministrativa()` which sets the reservation state to `CANCELADA` and marks all enrolled students as no longer reserved, then removes the `.res` file.
+
+    **Assign a teacher to a reservation:**
+    `asignarClase(tipoDocumento, numeroDocumento, codigoReserva)` — sets `EstadoDocente.ACEPTADA` on the reservation.
+
+    **Remove a teacher from a reservation:**
+    `cancelarDocente(tipoDocumento, numeroDocumento, codigoReserva)` — sets `EstadoDocente.EN_ESPERA` and clears the docente reference.
+  </Accordion>
+
+  <Accordion title="Capital management">
+    **Inject capital:** `inyectarCapital(float capital)` — adds the given amount to the academy's balance. The value must be non-negative.
+
+    **Withdraw capital:** `retirarCapital(float capital)` — subtracts the amount from the balance. Throws `ImposibleRetirar` if the balance would go negative.
+
+    Both operations persist the updated balance to `datos/NousAcademy.txt` immediately.
+  </Accordion>
+</AccordionGroup>
+
+## Persistence
+
+Every create and update operation writes a serialized object to the `datos/` directory. The file naming convention is:
+
+| Entity | File extension | Example |
+|---|---|---|
+| Administrator | `.usr` | `CC12345678.usr` |
+| Student | `.est` | `CC87654321.est` |
+| Teacher | `.doce` | `PA98765432.doce` |
+| Group | `.grp` | `GRP001.grp` |
+| Reservation | `.res` | `RES001.res` |
+| Academy info | `.txt` | `NousAcademy.txt` |
+
+The file name prefix is the first two characters of the `TipoDocumento` enum name followed by the document number (e.g., `CC` for `CC`, `TA` for `TARJETA_IDENTIDAD`, `CE`, `PA` for `PASAPORTE`, `NI` for `NIT`).

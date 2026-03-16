@@ -1,80 +1,188 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Get NOUS ACADEMY running from source in minutes — seed your data files, compile the project, and log in for the first time."
 ---
 
-## Get started in three steps
+This guide walks you through every step required to set up and launch NOUS ACADEMY from source for the first time, from creating the data directory to your first authenticated session in the Swing UI.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+Before you begin, make sure you have the following installed:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+- **Java JDK 11 or later** — NOUS ACADEMY targets the standard Java SE platform. Verify your installation:
 
-### Step 2: Deploy your changes
+```bash
+java -version
+javac -version
+```
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+- **The NOUS ACADEMY source code** — clone the repository or extract the project archive:
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+```bash
+git clone https://github.com/DuqueJR/NOUS_ACADEMY.git
+cd NOUS_ACADEMY
+```
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  All file paths in the boot classes are relative. Run every command from the **project root** — the directory that contains the `src/` folder — so that the `datos/` directory is resolved correctly.
 </Note>
+
+## Setup steps
+
+<Steps>
+  <Step title="Create the datos/ directory">
+    NOUS ACADEMY reads and writes all persistent data from a directory named `datos/` at the project root. This directory is **not** included in version control and **must exist before you compile or run anything**. If it is missing, every boot class will throw a `FileNotFoundException` and the application will not start.
+
+    ```bash
+    mkdir datos
+    ```
+
+    <Warning>
+      Do not rename or move this directory. The paths `datos/NousAcademy.txt` and `datos/*.usr` are hardcoded in `BootEmpresa`, `BootDeUsarioAdmin`, and `BootClass`. Any mismatch will silently prevent data from loading.
+    </Warning>
+  </Step>
+
+  <Step title="Seed the company data file">
+    Run `BootEmpresa` to write the academy's identity record to `datos/NousAcademy.txt`. This file is read at startup by `BootClass` to initialise the `AcademiaController` with the correct company details.
+
+    ```bash
+    javac -d out src/com/nousacademy/boot/BootEmpresa.java
+    java -cp out com.nousacademy.boot.BootEmpresa
+    ```
+
+    The command creates `datos/NousAcademy.txt` with the following five lines, one value per line:
+
+    | Line | Field      | Value                      |
+    |------|------------|----------------------------|
+    | 1    | NIT        | `5422994301`               |
+    | 2    | Nombre     | `NOUS ACADEMY SAS`         |
+    | 3    | Teléfono   | `5978893`                  |
+    | 4    | Correo     | `nousacademy@nacademy.co`  |
+    | 5    | Capital    | `0`                        |
+
+    You can verify the result:
+
+    ```bash
+    cat datos/NousAcademy.txt
+    ```
+
+    Expected output:
+
+    ```
+    5422994301
+    NOUS ACADEMY SAS
+    5978893
+    nousacademy@nacademy.co
+    0
+    ```
+
+    <Note>
+      The capital value is initialised to `0`. The administrator can adjust it at runtime through **AdminFrame** once the application is running.
+    </Note>
+  </Step>
+
+  <Step title="Create the default administrator account">
+    Run `BootDeUsarioAdmin` to serialise the default admin `Usuario` object to disk. This user is the only account that exists on a fresh installation, and it is what you will use to log in for the first time.
+
+    First, compile the full source tree so that all dependencies (`Usuario`, `TipoDocumento`, etc.) are available:
+
+    ```bash
+    javac -d out $(find src -name "*.java")
+    ```
+
+    Then run the boot class:
+
+    ```bash
+    java -cp out com.nousacademy.boot.BootDeUsarioAdmin
+    ```
+
+    This creates the serialised user file at:
+
+    ```
+    datos/CC1034992245.usr
+    ```
+
+    The file name is derived from the document type prefix (`CC`) and the document number (`1034992245`). The default administrator credentials are:
+
+    | Field            | Value                         |
+    |------------------|-------------------------------|
+    | Nombre           | Jeronimo Duque                |
+    | Teléfono         | 3013772580                    |
+    | Correo           | jeronimo.duque@gmail.co       |
+    | Tipo de documento | `CC`                         |
+    | Número de documento | `1034992245`              |
+    | **Usuario**      | **`admin`**                   |
+    | **Contraseña**   | **`123`**                     |
+
+    <Warning>
+      Change the default password as soon as you log in for the first time. The credentials `admin` / `123` are hardcoded in the source and are publicly visible in this repository.
+    </Warning>
+  </Step>
+
+  <Step title="Compile the full project">
+    If you ran the targeted compile in the previous step you already have a compiled output directory. If not, compile everything now:
+
+    ```bash
+    javac -d out $(find src -name "*.java")
+    ```
+
+    Confirm the output directory was populated:
+
+    ```bash
+    ls out/com/nousacademy/interfacegrafica/
+    ```
+
+    You should see `NousSwingApp.class` among the compiled files.
+  </Step>
+
+  <Step title="Launch NousSwingApp">
+    `NousSwingApp` is the main entry point for the Swing UI. It installs the application theme, loads the controller from `BootClass` (which deserialises all files in `datos/`), and opens `LoginFrame`.
+
+    ```bash
+    java -cp out com.nousacademy.interfacegrafica.NousSwingApp
+    ```
+
+    A window titled **NOUS ACADEMY — Login** opens, with a dark-blue hero panel and a login card in the centre.
+
+    <Note>
+      `NousSwingApp` calls `ControllerProvider.cargarDesdeBootClass()`, which instantiates `BootClass`. `BootClass` reads `datos/NousAcademy.txt` and then scans the entire `datos/` directory for `.usr`, `.est`, `.doce`, `.res`, and `.grp` files. All data must be in place before this step runs.
+    </Note>
+  </Step>
+
+  <Step title="Log in for the first time">
+    In the **Iniciar sesión** card, enter the default administrator credentials:
+
+    | Field       | Value   |
+    |-------------|---------|
+    | Usuario     | `admin` |
+    | Contraseña  | `123`   |
+
+    Click **Entrar** (or press Enter — it is set as the default button).
+
+    On success, `LoginFrame` closes and `AdminFrame` opens. The login flow checks credentials against all user types in this order: administrators (`.usr`), students (`.est`), then teachers (`.doce`). The window that opens depends on the matched role:
+
+    - **`TipoUsuario.ADMINISTRADOR`** → `AdminFrame`
+    - **`Docente` instance** → `TeacherFrame`
+    - **`Estudiante` instance with active membership** → `StudentFrame`
+
+    <Note>
+      A student without an assigned membership (`membresia == null`) will be shown an access-denied error and returned to the login screen. Memberships must be assigned by an administrator before a student can log in.
+    </Note>
+  </Step>
+</Steps>
+
+## Role windows
+
+After a successful login, the application opens one of three role-specific windows depending on the authenticated user's type.
+
+<CardGroup cols={3}>
+  <Card title="AdminFrame" icon="shield-halved" href="/roles/administrator">
+    Full management access. Administrators can manage users, students, teachers, groups, reservations, memberships, contracts, and academy capital.
+  </Card>
+  <Card title="TeacherFrame" icon="chalkboard-teacher" href="/roles/teacher">
+    Teacher-focused view. Docentes can start and finish assigned classes, review their class history, and check their contract status.
+  </Card>
+  <Card title="StudentFrame" icon="graduation-cap" href="/roles/student">
+    Student portal. Estudiantes can browse and reserve classes, join groups, rate completed sessions, and view their active membership.
+  </Card>
+</CardGroup>

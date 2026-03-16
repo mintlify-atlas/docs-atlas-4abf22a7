@@ -1,0 +1,158 @@
+---
+title: Data Model
+description: Entity relationships, inheritance hierarchy, serialization UIDs, and the ComportamientoContable interface in NOUS ACADEMY.
+---
+
+NOUS ACADEMY's domain model is structured around a central `AcademiaController` that owns all root collections. Entities are related by composition and direct object references — there is no relational database.
+
+## Entity relationship overview
+
+```
+AcademiaController
+├── Usuario[]          (administrators)
+├── Estudiante[]       (students)
+│     ├── 0..1 Membresia
+│     ├── Membresia[]  historialMembresias
+│     ├── Clase[]      historialClases
+│     └── Grupo[]      (up to 4)
+├── Docente[]          (teachers)
+│     ├── 0..1 Contrato
+│     └── Contrato[]   historialContratos
+├── Reserva[]          (class bookings)
+│     ├── 1 Clase      (ClaseGrupal OR ClasePersonalizada)
+│     ├── Estudiante[] (enrolled)
+│     ├── Estudiante[] asistentes (attended)
+│     └── 0..1 Docente
+└── Grupo[]            (study groups)
+      ├── Estudiante[]
+      ├── Docente[]
+      └── Reserva[]
+```
+
+## Inheritance hierarchy
+
+<CardGroup cols={2}>
+  <Card title="User hierarchy">
+    ```
+    Usuario  (serialVersionUID = 20012008L)
+    ├── Estudiante  (serialVersionUID = 3344556677L)
+    └── Docente     (serialVersionUID = 8389739L)
+    ```
+
+    `Usuario` implements `Serializable` and provides the base identity fields (`nombre`, `apellidos`, `tipoDocumento`, `numeroDocumento`, `usuario`, `contrasena`, `tipoUsuario`) plus `copiarFicheroUsuario()`.
+
+    `Estudiante` adds membership, class history, and group membership. `Docente` adds contract, hours tracking, specialty, and rating.
+  </Card>
+  <Card title="Class hierarchy">
+    ```
+    Clase  (abstract, serialVersionUID = 725346738L)
+    ├── ClaseGrupal       (serialVersionUID = -529805420994L)
+    └── ClasePersonalizada (serialVersionUID = 59788931749L)
+    ```
+
+    `Clase` provides `codigo`, `titulo`, `descripcion`, `tema`, and `duracion` (in minutes). It declares `generarCodigo(String sufijo)` as abstract.
+
+    `ClaseGrupal` adds `aforoMinimo`, `aforoMaximo`, and `aforoActual`. Its codes use prefix `PB` (e.g. `PB-001`).
+
+    `ClasePersonalizada` adds `informacionAdjunta`. Its codes use prefix `PV` (e.g. `PV-001`).
+  </Card>
+</CardGroup>
+
+## ComportamientoContable interface
+
+Both `Membresia` and `Contrato` implement `ComportamientoContable`:
+
+```java
+public interface ComportamientoContable {
+    // Returns the financial impact on academy capital.
+    // Positive = income (memberships), negative = expense (contracts).
+    double impactoComercial();
+
+    // Generates a unique code for the entity using the given prefix.
+    String generarCodigo(String sufijo);
+}
+```
+
+`AcademiaController` always applies the impact through `this.capital += entity.impactoComercial()`. Because `Contrato.impactoComercial()` returns a negative value, subtracting salary is identical to adding a negative number.
+
+## Serialization UIDs
+
+| Class | `serialVersionUID` |
+|---|---|
+| `Usuario` | `20012008L` |
+| `Estudiante` | `3344556677L` |
+| `Docente` | `8389739L` |
+| `Membresia` | `213L` |
+| `Contrato` | `1L` |
+| `Reserva` | `10349922455673L` |
+| `Grupo` | `747463748L` |
+| `Clase` | `725346738L` |
+| `ClaseGrupal` | `-529805420994L` |
+| `ClasePersonalizada` | `59788931749L` |
+
+<Warning>
+Changing any field types or adding non-transient fields to a serializable class without updating `serialVersionUID` will cause `InvalidClassException` when loading existing `.est`, `.doce`, `.res`, or `.grp` files.
+</Warning>
+
+## Key relationships in detail
+
+<Accordion title="Estudiante ↔ Membresia">
+
+- A student has at most one active `Membresia` (`membresia` field, nullable).
+- When a new membership is assigned, the current one is moved to `historialMembresias[]` with state `CANCELADA`.
+- `clasesPrivadasRestantes` mirrors the membership's `clasesPrivadas` total and decrements by 1 each time the student books a `ClasePersonalizada`.
+
+</Accordion>
+
+<Accordion title="Docente ↔ Contrato">
+
+- A teacher has at most one active `Contrato` (`contrato` field, nullable).
+- When a new contract is assigned or the current one is set to `FINALIZADO`, it is moved to `historialContratos[]`.
+- A teacher whose `contrato` is `null` can still be assigned to classes but cannot have a contract-related capital impact.
+
+</Accordion>
+
+<Accordion title="Reserva ↔ Clase">
+
+- Every `Reserva` holds exactly one `Clase` reference, set at construction time and never changed.
+- The type of `Clase` determines class behavior: `ClaseGrupal` enforces aforo limits; `ClasePersonalizada` is capped at one student and consumes a private class credit.
+- `Reserva.getCodigo()` delegates to `this.getClase().getCodigo()`, so the reservation code equals the class code.
+
+</Accordion>
+
+<Accordion title="Grupo relationships">
+
+- `Grupo` holds independent arrays of `Estudiante[]`, `Docente[]`, and `Reserva[]`.
+- A student's `grupos[]` array mirrors the groups they belong to (max 4, enforced by `CantidadGruposExcedida`).
+- Adding a student to a group updates both the group's array and the student's `grupos[]` array atomically.
+- Deleting a group (`eliminacionAdministrativa`) removes the group reference from every enrolled student.
+
+</Accordion>
+
+## AcademiaController root arrays
+
+`AcademiaController` is the single source of truth for all entity collections:
+
+```java
+private Usuario[]    usuarios;    // Administrators
+private Estudiante[] estudiantes;
+private Docente[]    docentes;
+private Reserva[]    reservas;
+private Grupo[]      grupos;
+private double       capital;
+private final String base = "datos/"; // persistence root
+```
+
+Arrays start at length 0 and grow via `Arrays.copyOf()` on each addition. There is no fixed capacity limit at the controller level (group membership is limited to 4 per student at the `Estudiante` level).
+
+## Code generation patterns
+
+| Entity | Format | Example |
+|---|---|---|
+| `Membresia` | `MEM` + 4-digit zero-padded serial | `MEM0001` |
+| `Contrato` | `CON` + 3-digit zero-padded serial | `CON001` |
+| `ClaseGrupal` | `PB-` + 3-digit zero-padded counter | `PB-001` |
+| `ClasePersonalizada` | `PV-` + 3-digit zero-padded counter | `PV-001` |
+| `Grupo` | `GRUP` + 3-digit zero-padded serial | `GRUP001` |
+
+All serial counters are `static int` fields on their respective classes, meaning they count from 1 within a single JVM session and reset on application restart. The counters are not persisted.

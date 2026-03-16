@@ -1,0 +1,228 @@
+---
+title: Teacher
+description: Full reference for the Teacher (Docente) role in NOUS ACADEMY — class fields, contract state machine, and session operations.
+---
+
+The **Teacher** (`Docente`) role is responsible for delivering classes. Teachers log in to the `TeacherFrame` dashboard, where they can view their assigned reservations, inspect their personal data, and manage their contract history.
+
+## Data model
+
+`Docente` extends `Usuario` and adds several teacher-specific fields:
+
+```java
+public class Docente extends Usuario implements Serializable {
+    private Contrato contrato;                     // Current active contract (null if none)
+    private Contrato[] historialContratos;         // All previously finalized contracts
+    private float cantidadHorasTrabajadasMes;      // Accumulated hours worked this month
+    private String especialidad;                   // Teaching specialty (required, non-empty)
+    private float calificacion;                    // Average rating from students (0 initially)
+    private float horasPrivadasAdicionalesMes;     // Additional private hours this month
+    private Reserva[] historialClasesImpartidas;   // All reservations assigned to this teacher
+}
+```
+
+The `tipoUsuario` field is set to `TipoUsuario.DOCENTE` at construction time.
+
+<Note>
+The `especialidad` field is mandatory. Passing an empty string throws `ElementosVacios` at construction.
+</Note>
+
+### Inherited fields from `Usuario`
+
+| Field | Description |
+|---|---|
+| `nombre` | First name (min 2 characters) |
+| `apellidos` | Last name(s) (min 2 characters) |
+| `telefono` | Phone number (≥ 5 digits, non-negative) |
+| `correo` | Email — must contain `@` and end with `nousacademy.co` |
+| `tipoDocumento` | One of `CC`, `TARJETA_IDENTIDAD`, `CE`, `PASAPORTE`, `NIT` |
+| `numeroDocumento` | Document number (≥ 5 digits, non-negative) |
+| `usuario` | Login username |
+| `contrasena` | Password |
+
+## TeacherFrame — tabbed interface
+
+After login the application opens `TeacherFrame` (titled **NOUS ACADEMY — Docente**) with three tabs:
+
+<Tabs>
+  <Tab title="Mis reservas">
+    Displays a table of all reservations assigned to the logged-in teacher. The columns shown are:
+
+    | Column | Source |
+    |---|---|
+    | Código | `reserva.getCodigo()` |
+    | Tipo | `ClaseGrupal` or `ClasePersonalizada` |
+    | Título | `reserva.getClase().getTitulo()` |
+    | Inicio esperado | `reserva.getHoraInicioEsperada()` |
+    | Estado | `reserva.getEstadoReserva()` |
+    | Estudiantes | Number of enrolled students |
+    | Calificada | Whether the reservation has been rated |
+    | Calificación general | Average rating from all students |
+
+    From the action panel the teacher can **start** or **finish** a reservation by entering its code.
+  </Tab>
+  <Tab title="Mis datos">
+    Read-only view of the teacher's personal information including name, document, email, phone, specialty, current rating, hours worked this month, and the current contract code and state.
+  </Tab>
+  <Tab title="Contrato">
+    Table showing the current contract (if any) followed by all finalized contracts in `historialContratos`. Columns: Código, Inicio, Finalización, Salario base, Horas mínimas, Costo hora adicional, Meses, Estado.
+  </Tab>
+</Tabs>
+
+## Contract model
+
+A `Contrato` stores the financial and temporal terms of the teacher's employment:
+
+```java
+public class Contrato implements ComportamientoContable, Serializable {
+    private String codigo;                       // Auto-generated: "CON" + 3-digit serial
+    private LocalDate fechaInicio;               // Must be today or in the future
+    private LocalDate fechaFinalizacion;         // Computed as fechaInicio + meses
+    private double salarioBase;                  // Must be > 0
+    private double horasMinimas;                 // Must be >= 0
+    private double costoHoraPrivadaAdicional;    // Must be >= 0
+    private int meses;                           // Must be > 0
+    private EstadoContrato estadoContato;        // Starts as ACTIVO
+}
+```
+
+`impactoComercial()` returns `−salarioBase * meses` and is subtracted from the academy's capital when the contract is assigned.
+
+### Contract state machine
+
+```java
+public enum EstadoContrato {
+    ACTIVO,
+    SUSPENDIDO,
+    FINALIZADO
+}
+```
+
+<Steps>
+  <Step title="ACTIVO">
+    Initial state when a contract is created. The teacher is actively employed under the terms of this contract.
+  </Step>
+  <Step title="SUSPENDIDO">
+    The contract is temporarily inactive. The teacher still has an assigned contract object but it is not currently in effect.
+  </Step>
+  <Step title="FINALIZADO">
+    Terminal state. When the administrator sets a contract to `FINALIZADO` through `actualizarEstadoContrato`, the `Docente.actualizarEstadoContrato()` method sets `this.contrato = null` and moves the contract to `historialContratos`.
+
+    A new contract can then be assigned to the teacher with `asignarContrato()`.
+  </Step>
+</Steps>
+
+<Warning>
+A contract whose state is already `FINALIZADO` cannot be assigned to a teacher. Calling `setContrato()` with a finalized contract throws `EstadoContratoDoc`.
+</Warning>
+
+### Assigning a new contract
+
+When `Docente.asignarContrato()` is called while the teacher already holds an active or suspended contract, the existing contract is automatically finalized and archived before the new one is created:
+
+```java
+public void asignarContrato(LocalDate fechaInicio, double salarioBase,
+        double horasMinimas, double costoHoraPrivadaAdicional, int meses)
+        throws FechaInvalida, ValoresNegativos, EstadoContratoInvalido {
+
+    if (this.contrato != null) {
+        this.contrato.actualizarEstadoContrato(EstadoContrato.FINALIZADO);
+        this.contrato.setFechaFinalizacion(LocalDate.now());
+        // archived into historialContratos
+    }
+    this.contrato = new Contrato(fechaInicio, salarioBase, horasMinimas,
+                                  costoHoraPrivadaAdicional, meses);
+}
+```
+
+## Class session operations
+
+Teachers interact with reservations through the `AcademiaController`. The reservation state changes as the session progresses.
+
+### Starting a class — `iniciarReserva`
+
+`controller.inciarReserva(docente, codigoReserva)`
+
+Internally calls `Reserva.iniciarClase()`, which enforces a strict time window:
+
+```java
+public void iniciarClase() throws DocenteRetardado, ClaseEnEstadoNoIniciar, NoSuficienteAforo {
+    LocalDateTime inicio = LocalDateTime.now();
+
+    // Too late: more than 10 minutes after the scheduled start
+    if (inicio.isAfter(this.horaInicioEsperada.plusMinutes(10))) {
+        this.estadoReserva = EstadoReserva.TARDE;
+        throw new DocenteRetardado();
+    }
+
+    // Too early: more than 5 minutes before the scheduled start
+    if (inicio.isBefore(this.horaInicioEsperada.minusMinutes(5))) {
+        throw new ClaseEnEstadoNoIniciar();
+    }
+
+    // Group class: minimum attendance must be met
+    if (this.clase instanceof ClaseGrupal) {
+        if (this.estudiantes.length < c.getAforoMinimo()) {
+            throw new NoSuficienteAforo();
+        }
+    }
+
+    this.estadoReserva = EstadoReserva.EN_CURSO;
+}
+```
+
+| Condition | Outcome |
+|---|---|
+| Started within the `[−5 min, +10 min]` window | State → `EN_CURSO` |
+| Started more than 10 minutes late | State → `TARDE`, throws `DocenteRetardado` |
+| Started more than 5 minutes early | Throws `ClaseEnEstadoNoIniciar` |
+| Group class with fewer students than `aforoMinimo` | Throws `NoSuficienteAforo` |
+
+### Finishing a class — `finalizarReserva`
+
+`controller.finalizarReserva(docente, codigoReserva)`
+
+Internally calls `Reserva.finalizarClase()`:
+
+- The reservation must be in `EN_CURSO`; otherwise `ClaseNuncaIniciada` is thrown.
+- If the real duration is less than `clase.getDuracion() − 25` minutes, the state is set to `PREMATURA` and `FinalizacionPrematuraDeReserva` is thrown.
+- On a normal finish the state transitions to `EXITOSA`, and `docente.trabajoDocente(reserva)` is called to accumulate `cantidadHorasTrabajadasMes`.
+- In both cases every enrolled student's `reservado` flag is reset to `false` via `claseFinalizada()`.
+
+### Viewing assigned reservations
+
+The teacher's panel fetches all reservations via `docente.getHistorialClasesImpartidas()`. Reservations are added to this array whenever an administrator calls `asignarClase()` on the controller.
+
+## Rating and performance
+
+Once a reservation reaches `EXITOSA`, `PREMATURA`, or `TARDE` state, enrolled students who attended (i.e., who are in the `asistentes` array) can rate the class on a scale of **1 to 5**.
+
+After each rating `Docente.calificacionDocente()` recalculates the teacher's average rating across all rated reservations:
+
+```java
+public void calificacionDocente() {
+    float suma = 0;
+    int n = 0;
+    for (Reserva r : this.historialClasesImpartidas) {
+        if (r.getCalificada()) {
+            suma += r.getCalificacionGeneral();
+            n++;
+        }
+    }
+    this.calificacion = suma / n;
+}
+```
+
+## EstadoDocente on a reservation
+
+Each `Reserva` also tracks the state of its assigned teacher through the `EstadoDocente` enum:
+
+```java
+public enum EstadoDocente {
+    ACEPTADA,   // A teacher has been assigned by the administrator
+    EN_ESPERA,  // No teacher currently assigned (or teacher was removed)
+    DENEGADA
+}
+```
+
+When an administrator assigns a teacher (`asignarDocente()`), the reservation's `estadoDocente` is set to `ACEPTADA`. If the teacher is removed (`cancelarDocente()`), it reverts to `EN_ESPERA`.

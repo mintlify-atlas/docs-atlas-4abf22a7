@@ -1,0 +1,305 @@
+---
+title: Teacher Management
+description: Create, update, delete, and list teachers (docentes) in NOUS ACADEMY, and manage their class and group assignments.
+---
+
+Teachers (`Docente`) are staff members who deliver classes in NOUS ACADEMY. They extend `Usuario` and add a specialty field, a contract, and a history of classes taught. Each teacher is persisted as a `.doce` file in `datos/`.
+
+## Overview
+
+<CardGroup cols={3}>
+  <Card title="Create" icon="user-plus">
+    Register a new teacher with identity, credential, and specialty validation.
+  </Card>
+  <Card title="Update" icon="pen-to-square">
+    Modify any non-empty field of an existing teacher, including their specialty.
+  </Card>
+  <Card title="Delete" icon="trash">
+    Remove a teacher and delete the corresponding `.doce` file.
+  </Card>
+  <Card title="List" icon="list">
+    Retrieve all registered teachers.
+  </Card>
+  <Card title="Assign Class" icon="calendar-plus">
+    Link a teacher to a specific class reservation.
+  </Card>
+  <Card title="Group Assignment" icon="users">
+    Add or remove a teacher from a group.
+  </Card>
+</CardGroup>
+
+---
+
+## Creating a Teacher
+
+`AcademiaController.crearDocente` registers a new teacher.
+
+```java
+public void crearDocente(
+    String nombre,
+    String apellidos,
+    String telefono,
+    String correo,
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    String usuario,
+    String contrasena,
+    String especialidad
+) throws ElementosVacios, CorreoNoValido, NombreNoValido,
+         IOException, ValoresNegativos, LongitudNoValida, Duplicados
+```
+
+<Steps>
+  <Step title="Duplicate check">
+    The controller scans the `docentes` array. If any existing record matches the same `tipoDocumento` + `numeroDocumento` pair **or** the same `usuario` string, `Duplicados` is thrown.
+  </Step>
+  <Step title="Object construction and validation">
+    `new Docente(...)` is instantiated. The `Docente` constructor calls the `Usuario` superclass constructor for all base-field validation, then verifies that `especialidad` is non-empty (throws `ElementosVacios` if it is).
+  </Step>
+  <Step title="Array append">
+    The `docentes` array is extended by one using `Arrays.copyOf` and the new instance is placed at the last index.
+  </Step>
+  <Step title="File persistence">
+    The teacher is serialized to `datos/<TipoDocumento prefix><numeroDocumento>.doce`.
+  </Step>
+</Steps>
+
+### Parameters
+
+<ParamField path="nombre" type="String" required>
+  First name. Must be at least 2 characters.
+</ParamField>
+
+<ParamField path="apellidos" type="String" required>
+  Last name(s). Must be at least 2 characters.
+</ParamField>
+
+<ParamField path="telefono" type="String" required>
+  Phone number as a string. Must be ≥ 5 characters and parse to a non-negative number.
+</ParamField>
+
+<ParamField path="correo" type="String" required>
+  Institutional email. Must contain `@` and end with `nousacademy.co`.
+</ParamField>
+
+<ParamField path="tipoDocumento" type="TipoDocumento" required>
+  One of the five `TipoDocumento` enum values (`CC`, `TARJETA_IDENTIDAD`, `CE`, `PASAPORTE`, `NIT`).
+</ParamField>
+
+<ParamField path="numeroDocumento" type="String" required>
+  Document number. Must be ≥ 5 characters and parse to a non-negative number.
+</ParamField>
+
+<ParamField path="usuario" type="String" required>
+  Login username. Must be non-empty and unique among all teachers.
+</ParamField>
+
+<ParamField path="contrasena" type="String" required>
+  Account password. Must be non-empty.
+</ParamField>
+
+<ParamField path="especialidad" type="String" required>
+  The teacher's area of expertise (e.g., `"Matemáticas"`, `"Música"`, `"Yoga"`). Must be non-empty.
+</ParamField>
+
+---
+
+## Validation Rules
+
+| Field | Rule | Exception thrown |
+|---|---|---|
+| Any base field | Must not be empty string | `ElementosVacios` |
+| `nombre` | Length ≥ 2 characters | `NombreNoValido` |
+| `apellidos` | Length ≥ 2 characters | `NombreNoValido` |
+| `correo` | Must contain `@` and end with `nousacademy.co` | `CorreoNoValido` |
+| `telefono` | Must parse as a non-negative number | `ValoresNegativos` |
+| `telefono` | Length ≥ 5 characters | `LongitudNoValida` |
+| `numeroDocumento` | Must parse as a non-negative number | `ValoresNegativos` |
+| `numeroDocumento` | Length ≥ 5 characters | `LongitudNoValida` |
+| `especialidad` | Must not be empty string | `ElementosVacios` |
+| `tipoDocumento` + `numeroDocumento` | Combination must be unique among teachers | `Duplicados` |
+| `usuario` | Must be unique among teachers | `Duplicados` |
+
+---
+
+## Updating a Teacher
+
+`AcademiaController.actualizarDocente` patches an existing teacher. Only fields passed as non-empty strings (or non-null for `tipoDocumento`) are applied.
+
+```java
+public void actualizarDocente(
+    TipoDocumento originalTD,
+    String originalND,
+    String nombre,
+    String apellidos,
+    String telefono,
+    String correo,
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    String especialidad
+) throws CorreoNoValido, NombreNoValido, ElementoNoExistente, IOException, ValoresNegativos
+```
+
+<Steps>
+  <Step title="Locate the record">
+    `buscarUnDocente(originalTD, originalND)` finds the teacher by **original** document type and number. Throws `ElementoNoExistente` if not found.
+  </Step>
+  <Step title="Apply non-empty fields">
+    Each parameter is tested: if it is not an empty string (or not `null` for `tipoDocumento`), the corresponding setter is called. This includes `setEspecialidad` — if `especialidad` is non-empty, the specialty is updated.
+  </Step>
+  <Step title="Re-persist">
+    The old `.doce` file at `datos/<originalTD prefix><originalND>.doce` is deleted. The teacher is re-serialized under the new filename derived from the (potentially updated) document identity.
+  </Step>
+</Steps>
+
+<Warning>
+  Pass `""` for any field you do not want to change. Passing `null` for `tipoDocumento` leaves it unchanged. Passing `null` for any `String` parameter will throw a `NullPointerException`.
+</Warning>
+
+---
+
+## Deleting a Teacher
+
+```java
+public void eliminarDocente(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento
+) throws ElementoNoExistente
+```
+
+Locates the teacher by `tipoDocumento` + `numeroDocumento`, deletes the `.doce` file, swaps the entry with the last element in the array, and shrinks the array. Throws `ElementoNoExistente` if no matching record is found.
+
+<Note>
+  There is a second overload of `eliminarDocente` on the controller that removes a teacher from a **group** (see [Group Management](#group-management) below). They are distinguished by the number of parameters: the two-parameter overload operates on the global teacher registry, while the three-parameter overload removes the teacher from a specific group.
+</Note>
+
+---
+
+## Listing All Teachers
+
+```java
+public Docente[] leerDocentes()
+```
+
+Returns a **clone** of the internal `docentes` array. Mutations to the returned array do not affect the controller's internal state.
+
+---
+
+## Class Assignment
+
+### Assigning a Teacher to a Class
+
+`AcademiaController.asignarClase` links a teacher to an existing `Reserva` (class reservation).
+
+```java
+public void asignarClase(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    String codigo
+) throws ElementoNoExistente, IOException
+```
+
+<Steps>
+  <Step title="Resolve entities">
+    Both `buscarUnaReserva(codigo)` and `buscarUnDocente(tipoDocumento, numeroDocumento)` are called. Either can throw `ElementoNoExistente`.
+  </Step>
+  <Step title="Assign">
+    `Reserva.asignarDocente(d)` is called to record the teacher on the reservation.
+  </Step>
+  <Step title="Persist both sides">
+    Both the reservation (`.res`) and the teacher (`.doce`) files are updated on disk.
+  </Step>
+</Steps>
+
+### Canceling a Teacher Assignment
+
+`AcademiaController.cancelarDocente` removes a teacher from a reservation.
+
+```java
+public void cancelarDocente(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    String codigo
+) throws ElementoNoExistente, NingunDocenteAsignado, ReservaNoEnDocente, IOException
+```
+
+| Exception | Meaning |
+|---|---|
+| `ElementoNoExistente` | The reservation or teacher was not found |
+| `NingunDocenteAsignado` | The reservation has no teacher currently assigned |
+| `ReservaNoEnDocente` | The reservation is not present in the teacher's class history |
+
+Both the reservation and teacher files are re-persisted after the cancellation.
+
+---
+
+## Group Management
+
+Teachers can be assigned to groups, making them responsible for delivering that group's sessions.
+
+### Adding a Teacher to a Group
+
+```java
+public void añadirDocente(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    String codigo
+) throws ElementoNoExistente, IOException
+```
+
+Resolves both the teacher and the group by their identifiers, calls `Grupo.anadirDocente(d)`, then persists both the group (`.grp`) and the teacher (`.doce`) files.
+
+### Removing a Teacher from a Group
+
+```java
+public void eliminarDocente(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    String codigo
+) throws ElementoNoExistente, DocenteNoEnGrupo, IOException
+```
+
+Resolves the group by `codigo` and the teacher by document identity, calls `Grupo.eliminarDocente(d)`, and persists both files. Throws `DocenteNoEnGrupo` if the teacher is not a member of that group.
+
+<Tip>
+  The `codigo` parameter here is the **group code**, not a document number. Use `leerGrupos()` to discover available group codes before calling this method.
+</Tip>
+
+---
+
+## Teacher-Specific State
+
+When a teacher is created, the following fields are initialized:
+
+| Field | Initial value | Description |
+|---|---|---|
+| `especialidad` | Provided at creation | Area of teaching expertise |
+| `contrato` | `null` | Active contract; assigned later by an administrator |
+| `historialContratos` | Empty array | Finalized or superseded contracts |
+| `calificacion` | `0` | Average rating computed from class ratings |
+| `cantidadHorasTrabajadasMes` | `0` | Accumulated teaching hours for the current month |
+| `horasPrivadasAdicionalesMes` | `0` | Additional private hours worked this month |
+| `historialClasesImpartidas` | Empty array | All reservations the teacher has been assigned to |
+| `tipoUsuario` | `DOCENTE` | Role assigned automatically |
+
+---
+
+## File Persistence
+
+| Detail | Value |
+|---|---|
+| Directory | `datos/` |
+| Extension | `.doce` |
+| Filename pattern | `<first 2 chars of TipoDocumento name><numeroDocumento>.doce` |
+| Serialization | `ObjectOutputStream` wrapping a `FileOutputStream` |
+| `serialVersionUID` | `8389739L` |
+
+**Examples:**
+
+| TipoDocumento | numeroDocumento | Filename |
+|---|---|---|
+| `CC` | `12345678` | `CC12345678.doce` |
+| `TARJETA_IDENTIDAD` | `99001122` | `TA99001122.doce` |
+| `CE` | `55443300` | `CE55443300.doce` |
+| `PASAPORTE` | `AB123456` | `PAAB123456.doce` |
+| `NIT` | `8001234560` | `NI8001234560.doce` |

@@ -1,0 +1,181 @@
+---
+title: File Persistence
+description: How NOUS ACADEMY persists data to disk using Java serialization and plain-text files.
+---
+
+NOUS ACADEMY uses two persistence mechanisms:
+
+- **Java object serialization** (`ObjectOutputStream` / `ObjectInputStream`) for entity files.
+- **Plain text** (`BufferedWriter` / `BufferedReader`) for academy configuration in `NousAcademy.txt`.
+
+All files live in the `datos/` directory, which is the persistence root for the application.
+
+## Directory structure
+
+```
+datos/
+├── NousAcademy.txt          # Academy metadata (plain text, 5 lines)
+├── CC12345678.usr           # Administrator (Usuario) — one file per admin
+├── TI98765432.est           # Student (Estudiante) — one file per student
+├── CC11223344.doce          # Teacher (Docente) — one file per teacher
+├── PB-001.res               # Group class reservation
+├── PV-001.res               # Private class reservation
+└── GRUP001.grp              # Group (Grupo)
+```
+
+## File types and extensions
+
+| Extension | Entity class | Serialized by |
+|---|---|---|
+| `.usr` | `Usuario` (Administrator) | `Usuario.copiarFicheroUsuario()` |
+| `.est` | `Estudiante` | `Usuario.copiarFicheroUsuario()` (inherited) |
+| `.doce` | `Docente` | `Usuario.copiarFicheroUsuario()` (inherited) |
+| `.res` | `Reserva` | `Reserva.copiarFicheroReserva()` |
+| `.grp` | `Grupo` | `Grupo.copiarFicheroGrupo()` |
+| `.txt` | Academy info (plain text) | `BufferedWriter` in `AcademiaController` setters |
+
+<Note>
+`Estudiante` and `Docente` extend `Usuario` and call the inherited `copiarFicheroUsuario()` method, but are saved with their own extensions (`.est` and `.doce`) so the boot loader can distinguish them.
+</Note>
+
+## File naming convention
+
+User-related files (`.usr`, `.est`, `.doce`) are named using the first two characters of the `TipoDocumento` enum constant name followed by the numeric document number:
+
+```java
+// From AcademiaController.java
+e.copiarFicheroUsuario(
+    base + e.getTipoDocumento().name().substring(0, 2) + e.getNumeroDocumento() + ".est"
+);
+```
+
+Examples:
+- `CC12345678.est` — student with `CEDULA_CIUDADANIA` document
+- `TI87654321.usr` — admin with `TARJETA_IDENTIDAD` document
+- `CC99887766.doce` — teacher with `CEDULA_CIUDADANIA` document
+
+Reservation and group files use the object's own code as the filename:
+
+```java
+r.copiarFicheroReserva(base + r.getCodigo() + ".res");  // e.g. PB-001.res
+g.copiarFicheroGrupo(base + g.getCodigo() + ".grp");    // e.g. GRUP001.grp
+```
+
+## How serialization works
+
+Every entity writes itself atomically via `ObjectOutputStream`:
+
+```java
+// copiarFicheroUsuario in Usuario.java
+public void copiarFicheroUsuario(String dir) throws IOException {
+    FileOutputStream f = new FileOutputStream(dir);
+    ObjectOutputStream b = new ObjectOutputStream(f);
+    b.writeObject((Usuario) this);
+    b.close();
+    f.close();
+}
+
+// copiarFicheroReserva in Reserva.java
+public void copiarFicheroReserva(String dir) throws IOException {
+    FileOutputStream f = new FileOutputStream(dir);
+    ObjectOutputStream b = new ObjectOutputStream(f);
+    b.writeObject((Reserva) this);
+    b.close();
+    f.close();
+}
+
+// copiarFicheroGrupo in Grupo.java
+public void copiarFicheroGrupo(String dir) throws IOException {
+    FileOutputStream f = new FileOutputStream(dir);
+    ObjectOutputStream b = new ObjectOutputStream(f);
+    b.writeObject((Grupo) this);
+    b.close();
+    f.close();
+}
+```
+
+Each file contains exactly one serialized object. The file is overwritten completely on every save — there is no delta or append mechanism.
+
+## NousAcademy.txt format
+
+The plain-text file stores five lines in fixed order:
+
+```
+5422994301
+NOUS ACADEMY SAS
+5978893
+nousacademy@nacademy.co
+0.0
+```
+
+| Line | Field | Type |
+|---|---|---|
+| 1 | `nit` | String |
+| 2 | `nombre` | String |
+| 3 | `telefono` | String |
+| 4 | `correo` | String |
+| 5 | `capital` | double (as string) |
+
+<Warning>
+`NousAcademy.txt` is **rewritten in full** every time any of the following occurs: `setNit`, `setNombre`, `setTelefono`, `setCorreo`, `inyectarCapital`, `retirarCapital`, `asignarMembresiaDefinida`, `asignarMembresiaPersonalizada`, or `asignarContrato`. There is no partial update.
+</Warning>
+
+## Boot loading sequence
+
+`BootClass` loads all data at application startup. The sequence is fixed:
+
+```
+cargarEmpresa()       → reads NousAcademy.txt, constructs AcademiaController
+cargarUsuarios()      → scans datos/ for *.usr, deserializes Usuario objects
+cargarEstudiantes()   → scans datos/ for *.est, deserializes Estudiante objects
+cargarDocentes()      → scans datos/ for *.doce, deserializes Docente objects
+cargarReservas()      → scans datos/ for *.res, deserializes Reserva objects
+cargarGrupos()        → scans datos/ for *.grp, deserializes Grupo objects
+```
+
+Each loader scans the entire `datos/` directory, filters by extension, and reads objects via `ObjectInputStream`:
+
+```java
+// Example from cargarEstudiantes() in BootClass.java
+String extension = ".est";
+for (File i : archivos) {
+    if (i.isFile() && i.getName().endsWith(extension)) {
+        f = new FileInputStream(i);
+        r = new ObjectInputStream(f);
+        Object obj = r.readObject();
+        if (obj instanceof Estudiante) {
+            e = Arrays.copyOf(e, e.length + 1);
+            e[e.length - 1] = (Estudiante) obj;
+        }
+    }
+}
+nousAcademy.setEstudiantes(e);
+```
+
+The same pattern applies to all entity types. `cargarEmpresa()` returns a `String[5]` that maps directly to the five fields of `AcademiaController`'s constructor.
+
+## Initial setup
+
+`BootEmpresa` is a one-time setup utility that creates the initial `NousAcademy.txt` file with seed data:
+
+```java
+// BootEmpresa.java — run once before first launch
+b.write("5422994301");          // nit
+b.write("NOUS ACADEMY SAS");    // nombre
+b.write("5978893");             // telefono
+b.write("nousacademy@nacademy.co"); // correo
+b.write("0");                   // capital
+```
+
+<Tip>
+Run `BootEmpresa.main()` only when initializing a clean installation. Running it on an existing deployment overwrites the current capital value with `0`.
+</Tip>
+
+## File lifecycle
+
+| Event | File action |
+|---|---|
+| Entity created | New file written via `copiarFichero*()` |
+| Entity updated | Old file deleted, new file written with updated name if document/code changed |
+| Entity deleted | File deleted with `archivo.delete()`, entity removed from in-memory array |
+| Financial change | `NousAcademy.txt` rewritten immediately after the operation |

@@ -1,0 +1,183 @@
+---
+title: Memberships
+description: How student memberships are defined, assigned, priced, and tracked in NOUS ACADEMY.
+---
+
+Memberships grant students access to academy services for a fixed period. Each membership has a type, a price, a private class quota, and a lifecycle state. The academy's capital increases by the membership price when one is assigned.
+
+## Membership types
+
+There are four membership types defined in `TipoMembresia`:
+
+```java
+public enum TipoMembresia {
+    BASICA,
+    INTENSIVA,
+    PREMIUM,
+    PERSONALIZADA;
+}
+```
+
+The three pre-defined types have fixed monthly rates. Prices are multiplied by the number of months contracted:
+
+| Type | Monthly price (COP) | Private classes / month | Code prefix |
+|---|---|---|---|
+| `BASICA` | 1,200,000 | 0 | `MEM` |
+| `INTENSIVA` | 2,200,000 | 4 | `MEM` |
+| `PREMIUM` | 3,500,000 | 8 | `MEM` |
+| `PERSONALIZADA` | Custom (`precio`) | Custom (`clasesPrivadas`) | `MEM` |
+
+For pre-defined types the constructor computes the total price and private class count from the source:
+
+```java
+switch (tipoMembresia) {
+    case BASICA:
+        this.clasesPrivadas = 0;
+        this.precio = 1200000 * meses;
+        break;
+    case INTENSIVA:
+        this.clasesPrivadas = 4 * meses;
+        this.precio = 2200000 * meses;
+        break;
+    case PREMIUM:
+        this.clasesPrivadas = 8 * meses;
+        this.precio = 3500000 * meses;
+        break;
+}
+```
+
+<Note>
+`clasesPrivadas` for INTENSIVA and PREMIUM is the **total** for the full contract period, not per session. A 3-month INTENSIVA membership grants 12 private classes.
+</Note>
+
+## Membership codes
+
+Codes are auto-generated using a zero-padded 4-digit serial counter with the `MEM` prefix:
+
+```java
+@Override
+public String generarCodigo(String sufijo) {
+    serial++;
+    return sufijo + String.format("%04d", serial);
+}
+```
+
+Examples: `MEM0001`, `MEM0002`, `MEM0003`.
+
+## Membership states
+
+Defined in `EstadoMembresia`:
+
+```java
+public enum EstadoMembresia {
+    CANCELADA,
+    SUSPENDIDA,
+    EN_PROGRESO;
+}
+```
+
+| State | Meaning |
+|---|---|
+| `EN_PROGRESO` | Active — set automatically on creation |
+| `SUSPENDIDA` | Temporarily paused by an administrator |
+| `CANCELADA` | Permanently ended; set automatically when a new membership replaces an existing one |
+
+## Assigning memberships
+
+<Tabs>
+  <Tab title="Defined type">
+    Use `asignarMembresiaDefinida` to assign BASICA, INTENSIVA, or PREMIUM to a student. The price and private class count are derived from the type.
+
+    ```java
+    public void asignarMembresiaDefinida(
+        TipoDocumento tipoDocumento,
+        String numeroDocumento,
+        TipoMembresia tipo,
+        LocalDate fechaInicio,
+        int meses
+    ) throws FechaInvalida, ValoresNegativos, TipoMembresiaInvalida,
+             EstadoMembresiaInvalido, ElementoNoExistente, IOException
+    ```
+
+    **Behavior:**
+    1. Looks up the student by document.
+    2. If the student already has a membership, the current one is set to `CANCELADA` and moved to `historialMembresias`.
+    3. A new `Membresia` object is created with the computed price and class count.
+    4. `capital += membresia.impactoComercial()` is applied.
+    5. The student file (`.est`) and `NousAcademy.txt` are rewritten.
+
+    <Warning>
+    Passing `TipoMembresia.PERSONALIZADA` to this method throws `TipoMembresiaInvalida`. Use `asignarMembresiaPersonalizada` instead.
+    </Warning>
+  </Tab>
+  <Tab title="Custom type">
+    Use `asignarMembresiaPersonalizada` to set a fully custom price, class count, and duration.
+
+    ```java
+    public void asignarMembresiaPersonalizada(
+        TipoDocumento tipoDocumento,
+        String numeroDocumento,
+        LocalDate fechaInicio,
+        double precio,
+        int clasesPrivadas,
+        int meses
+    ) throws ValoresNegativos, FechaInvalida, EstadoMembresiaInvalido,
+             ElementosVacios, ElementoNoExistente, IOException
+    ```
+
+    **Behavior:** Identical to the defined flow, but the `Membresia` is constructed with the supplied `precio` and `clasesPrivadas` values, and the type is set to `PERSONALIZADA`.
+  </Tab>
+</Tabs>
+
+## Capital impact
+
+Every membership increases the academy's capital by the full contract price:
+
+```java
+// In Membresia.java
+@Override
+public double impactoComercial() {
+    return this.precio; // positive — increases capital
+}
+
+// In AcademiaController.java
+this.capital += e.getMembresia().impactoComercial();
+```
+
+For a 2-month PREMIUM membership: `impactoComercial()` returns `3,500,000 × 2 = 7,000,000`.
+
+## Updating membership state
+
+```java
+public void actualizarEstadoMembresia(
+    TipoDocumento tipoDocumento,
+    String numeroDocumento,
+    EstadoMembresia estado
+) throws ElementoNoExistente, EstadoMembresiaInvalido, IOException
+```
+
+The controller delegates to the student, which delegates to the membership object. After the update the student's `.est` file is rewritten to persist the change.
+
+## Dates and expiry
+
+- `fechaVencimiento` is computed as `fechaInicio.plusMonths(meses)` at construction time.
+- Updating `fechaInicio` via `setFechaInicio` recalculates `fechaVencimiento` automatically.
+
+## Validation rules
+
+<Accordion title="View all validation rules">
+
+| Parameter | Rule | Exception thrown |
+|---|---|---|
+| `fechaInicio` | Must not be `null` and must not be before today | `FechaInvalida` |
+| `precio` | Must be `> 0` | `ValoresNegativos` |
+| `meses` | Must be `> 0` | `ValoresNegativos` |
+| `clasesPrivadas` | Must be `>= 0` | `ValoresNegativos` |
+| `tipoMembresia` | Must not be `null`; must not be `PERSONALIZADA` when using the defined constructor | `TipoMembresiaInvalida` |
+| `nuevoEstado` | Must not be `null` | `EstadoMembresiaInvalido` |
+
+</Accordion>
+
+## Serialization
+
+`Membresia` implements `Serializable` with `serialVersionUID = 213L`. It is embedded inside the `Estudiante` object and persisted together with it in the `.est` file — there is no separate membership file.

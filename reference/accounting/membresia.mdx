@@ -1,0 +1,216 @@
+---
+title: Membresia
+description: Represents a student membership plan. Implements ComportamientoContable, contributing positively to academy capital when assigned.
+---
+
+## Overview
+
+`Membresia` encodes a student's subscription to the academy. Two creation paths exist: a free-form personalized plan and a set of three pre-defined plans with fixed pricing. In both cases, the membership generates revenue (`impactoComercial()` returns the price) that is added to the academy's capital by the controller.
+
+```java
+package com.nousacademy.contabilidad;
+
+public class Membresia implements ComportamientoContable, Serializable { ... }
+```
+
+---
+
+## Fields
+
+<ResponseField name="codigo" type="String">
+  Auto-generated unique code in `MEM0001` format (4-digit zero-padded serial).
+</ResponseField>
+
+<ResponseField name="tipoMembresia" type="TipoMembresia">
+  Plan type: `BASICA`, `INTENSIVA`, `PREMIUM`, or `PERSONALIZADA`.
+</ResponseField>
+
+<ResponseField name="fechaInicio" type="LocalDate">
+  Start date of the membership. Must not be in the past.
+</ResponseField>
+
+<ResponseField name="fechaVencimiento" type="LocalDate">
+  Expiry date, computed as `fechaInicio + meses` months.
+</ResponseField>
+
+<ResponseField name="precio" type="double">
+  Total price of the membership in COP.
+</ResponseField>
+
+<ResponseField name="estadoMembresia" type="EstadoMembresia">
+  Current status: `EN_PROGRESO`, `SUSPENDIDA`, or `CANCELADA`. Starts as `EN_PROGRESO`.
+</ResponseField>
+
+<ResponseField name="clasesPrivadas" type="int">
+  Number of private class credits included. Depends on plan type.
+</ResponseField>
+
+<ResponseField name="meses" type="int">
+  Duration of the membership in months.
+</ResponseField>
+
+---
+
+## TipoMembresia
+
+```java
+public enum TipoMembresia {
+    BASICA, INTENSIVA, PREMIUM, PERSONALIZADA
+}
+```
+
+### Plan pricing (per month)
+
+| Plan | Monthly price (COP) | Private classes per month |
+|------|--------------------|--------------------------|
+| `BASICA` | 1,200,000 | 0 |
+| `INTENSIVA` | 2,200,000 | 4 |
+| `PREMIUM` | 3,500,000 | 8 |
+| `PERSONALIZADA` | Set by administrator | Set by administrator |
+
+<Note>
+For pre-defined plans, the total `precio` is `pricePerMonth × meses` and `clasesPrivadas` is `creditsPerMonth × meses`.
+</Note>
+
+---
+
+## EstadoMembresia
+
+```java
+public enum EstadoMembresia {
+    CANCELADA, SUSPENDIDA, EN_PROGRESO
+}
+```
+
+| State | Meaning |
+|-------|---------|
+| `EN_PROGRESO` | Membership is active. Initial state. |
+| `SUSPENDIDA` | Membership is temporarily suspended. |
+| `CANCELADA` | Membership has been cancelled. Archived to history. |
+
+---
+
+## Constructors
+
+<Tabs>
+  <Tab title="Personalized membership">
+```java
+public Membresia(
+    LocalDate fechaInicio,
+    double precio,
+    int clasesPrivadas,
+    int meses
+) throws FechaInvalida, ValoresNegativos
+```
+
+Creates a fully custom membership. Sets `tipoMembresia` to `PERSONALIZADA` and `estadoMembresia` to `EN_PROGRESO`.
+
+<ParamField path="fechaInicio" type="LocalDate" required>Start date (must not be `null` or in the past).</ParamField>
+<ParamField path="precio" type="double" required>Total membership price in COP (must be > 0).</ParamField>
+<ParamField path="clasesPrivadas" type="int" required>Private class credits included (must be ≥ 0).</ParamField>
+<ParamField path="meses" type="int" required>Duration in months (must be > 0).</ParamField>
+
+| Throws | Condition |
+|--------|-----------|
+| `FechaInvalida` | `fechaInicio` is `null` or before today. |
+| `ValoresNegativos` | `precio ≤ 0`, `clasesPrivadas < 0`, or `meses ≤ 0`. |
+  </Tab>
+  <Tab title="Pre-defined plan">
+```java
+public Membresia(
+    TipoMembresia tipoMembresia,
+    LocalDate fechaInicio,
+    int meses
+) throws TipoMembresiaInvalida, ValoresNegativos, FechaInvalida
+```
+
+Creates a membership from a pre-defined plan. Automatically sets `precio` and `clasesPrivadas` based on `tipoMembresia`.
+
+<ParamField path="tipoMembresia" type="TipoMembresia" required>Must be `BASICA`, `INTENSIVA`, or `PREMIUM`. Passing `PERSONALIZADA` or `null` throws `TipoMembresiaInvalida`.</ParamField>
+<ParamField path="fechaInicio" type="LocalDate" required>Start date (must not be `null` or before today).</ParamField>
+<ParamField path="meses" type="int" required>Duration in months (must be > 0).</ParamField>
+
+| Throws | Condition |
+|--------|-----------|
+| `TipoMembresiaInvalida` | `tipoMembresia` is `null` or `PERSONALIZADA`. |
+| `FechaInvalida` | `fechaInicio` is `null` or before today. |
+| `ValoresNegativos` | `meses ≤ 0`. |
+  </Tab>
+</Tabs>
+
+---
+
+## ComportamientoContable interface
+
+`Membresia` implements `com.nousacademy.contabilidad.ComportamientoContable`.
+
+### `impactoComercial()`
+
+```java
+@Override
+public double impactoComercial()
+```
+
+Returns `this.precio`. The controller adds this value to `capital` when assigning the membership.
+
+**Return:** the total membership price (positive value — income for the academy).
+
+### `generarCodigo(String sufijo)`
+
+```java
+@Override
+public String generarCodigo(String sufijo)
+```
+
+Increments the static serial and returns `sufijo + String.format("%04d", serial)`. Always called with `"MEM"`, producing codes like `MEM0001`, `MEM0002`, …
+
+---
+
+## Methods
+
+### `actualizarEstadoMembresia(EstadoMembresia nuevoEstado)`
+
+```java
+public void actualizarEstadoMembresia(EstadoMembresia nuevoEstado)
+    throws EstadoMembresiaInvalido
+```
+
+Changes the membership status.
+
+<ParamField path="nuevoEstado" type="EstadoMembresia" required>New state (must not be `null`).</ParamField>
+
+| Throws | Condition |
+|--------|-----------|
+| `EstadoMembresiaInvalido` | `nuevoEstado` is `null`. |
+
+### `copiarFicheroMembresia(String dir)`
+
+```java
+public void copiarFicheroMembresia(String dir) throws IOException
+```
+
+Serializes the membership to the given path.
+
+---
+
+## Getters and setters
+
+| Method | Type | Validation | Description |
+|--------|------|-----------|-------------|
+| `getCodigo()` | `String` | — | Returns the membership code. |
+| `getTipoMembresia()` | `TipoMembresia` | — | Returns the plan type. |
+| `getFechaInicio()` | `LocalDate` | — | Returns the start date. |
+| `setFechaInicio(LocalDate)` | `void` | Not null, not before today → `FechaInvalida` | Sets start date and recalculates `fechaVencimiento`. |
+| `getFechaVencimiento()` | `LocalDate` | — | Returns the computed expiry date. |
+| `getPrecio()` | `double` | — | Returns total price. |
+| `setPrecio(double)` | `void` | Must be > 0 → `ValoresNegativos` | Updates total price. |
+| `getEstadoMembresia()` | `EstadoMembresia` | — | Returns current status. |
+| `getClasesPrivadas()` | `int` | — | Returns private class credits. |
+| `setClasesPrivadas(int)` | `void` | Must be ≥ 0 → `ValoresNegativos` | Updates private class credits. |
+| `getMeses()` | `int` | — | Returns duration in months. |
+
+---
+
+## Serialization
+
+`Membresia` implements `java.io.Serializable` with `serialVersionUID = 213L`.
